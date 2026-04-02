@@ -1,0 +1,13 @@
+node_modules/
+dist/
+*.log
+
+# Banco local
+dados.db
+
+# Ambiente
+.env
+
+# Sistema
+.DS_Store
+Thumbs.db
