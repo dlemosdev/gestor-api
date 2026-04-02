@@ -49,12 +49,16 @@ export interface Atividade {
   id: string;
   projetoId: string;
   raiaId: string;
+  codigoReferencia: string;
+  tipo: 'HU' | 'BUGFIX' | 'HOTFIX';
+  atividadePaiId: string | null;
   titulo: string;
   descricao: string;
   prioridade: 'BAIXA' | 'MEDIA' | 'ALTA' | 'CRITICA';
   status: 'BACKLOG' | 'EM_ANDAMENTO' | 'BLOQUEADA' | 'CONCLUIDA';
   responsavel: string;
   prazo: string;
+  dataConclusao: string | null;
   etiquetas: EtiquetaAtividade[];
   checklist: ChecklistItem[];
   comentarios: Comentario[];
@@ -87,6 +91,8 @@ export interface ReordenarRaiasPayload {
 
 export interface CriarAtividadePayload {
   raiaId: string;
+  tipo: Atividade['tipo'];
+  atividadePaiId?: string | null;
   titulo: string;
   descricao: string;
   prioridade: Atividade['prioridade'];

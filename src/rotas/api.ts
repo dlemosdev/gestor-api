@@ -48,12 +48,16 @@ interface AtividadeBanco {
   id: string;
   projeto_id: string;
   raia_id: string;
+  codigo_referencia: string;
+  tipo: Atividade['tipo'];
+  atividade_pai_id: string | null;
   titulo: string;
   descricao: string;
   prioridade: Atividade['prioridade'];
   status: Atividade['status'];
   responsavel: string;
   prazo: string;
+  data_conclusao: string | null;
   etiquetas_json: string;
   checklist_json: string;
   comentarios_json: string;
@@ -64,6 +68,10 @@ interface AtividadeBanco {
 
 interface IdApenas {
   id: string;
+}
+
+interface CodigoReferenciaBanco {
+  codigo_referencia: string;
 }
 
 interface ProximaOrdemLinha {
@@ -109,12 +117,16 @@ function mapearAtividade(linha: AtividadeBanco): Atividade {
     id: linha.id,
     projetoId: linha.projeto_id,
     raiaId: linha.raia_id,
+    codigoReferencia: linha.codigo_referencia,
+    tipo: linha.tipo,
+    atividadePaiId: linha.atividade_pai_id,
     titulo: linha.titulo,
     descricao: linha.descricao,
     prioridade: linha.prioridade,
     status: linha.status,
     responsavel: linha.responsavel,
     prazo: linha.prazo,
+    dataConclusao: linha.data_conclusao,
     etiquetas: jsonSeguroParse(linha.etiquetas_json, []),
     checklist: jsonSeguroParse(linha.checklist_json, []),
     comentarios: jsonSeguroParse(linha.comentarios_json, []),
@@ -139,6 +151,123 @@ function validarUuid(valor: unknown, campo: string): string {
   }
 
   return uuid;
+}
+
+function normalizarNomeRaia(nome: string): string {
+  return nome
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .trim()
+    .toLowerCase();
+}
+
+function validarTipoAtividade(valor: unknown, campo: string): Atividade['tipo'] {
+  const tipo = String(valor ?? '').trim().toUpperCase() as Atividade['tipo'];
+
+  if (tipo !== 'HU' && tipo !== 'BUGFIX' && tipo !== 'HOTFIX') {
+    throw new ApiErro(`Campo deve ser um tipo de atividade válido: ${campo}`, 400);
+  }
+
+  return tipo;
+}
+
+function formatarCodigoReferencia(prefixo: 'HU' | 'BG' | 'HF', sequencia: number): string {
+  return `${prefixo}${String(sequencia).padStart(5, '0')}`;
+}
+
+async function buscarRaiaPorId(raiaId: string): Promise<RaiaBanco> {
+  const raia = await obter<RaiaBanco>(`SELECT * FROM ${TABELAS.raias} WHERE id = ?`, [raiaId]);
+
+  if (!raia) {
+    throw new ApiErro('Raia nao encontrada.', 404);
+  }
+
+  return raia;
+}
+
+async function gerarCodigoReferencia(tipo: Atividade['tipo']): Promise<string> {
+  const prefixo = tipo === 'BUGFIX' ? 'BG' : tipo === 'HOTFIX' ? 'HF' : 'HU';
+  const codigos = await listar<CodigoReferenciaBanco>(
+    `SELECT codigo_referencia FROM ${TABELAS.atividades} WHERE codigo_referencia LIKE ? ORDER BY codigo_referencia DESC LIMIT 1`,
+    [`${prefixo}%`],
+  );
+
+  const ultimoCodigo = codigos[0]?.codigo_referencia?.trim().toUpperCase() ?? '';
+  const proximaSequencia = ultimoCodigo ? Number(ultimoCodigo.slice(2)) + 1 : 1;
+  return formatarCodigoReferencia(prefixo, proximaSequencia);
+}
+
+function statusPorRaia(nomeRaia: string, statusAtual: Atividade['status']): Atividade['status'] {
+  const nomeNormalizado = normalizarNomeRaia(nomeRaia);
+
+  if (nomeNormalizado === 'concluidas') {
+    return 'CONCLUIDA';
+  }
+
+  if (nomeNormalizado === 'backlog') {
+    return 'BACKLOG';
+  }
+
+  if (statusAtual === 'CONCLUIDA') {
+    return 'EM_ANDAMENTO';
+  }
+
+  return statusAtual;
+}
+
+function dataConclusaoPorRaia(nomeRaia: string, dataAtual: string | null): string | null {
+  return normalizarNomeRaia(nomeRaia) === 'concluidas' ? dataAtual ?? agoraIso() : null;
+}
+
+async function validarAtividadePai(
+  projetoId: string,
+  tipo: Atividade['tipo'],
+  atividadePaiId: string | null,
+  atividadeAtualId?: string,
+): Promise<string | null> {
+  if (tipo === 'HU') {
+    return null;
+  }
+
+  if (!atividadePaiId) {
+    throw new ApiErro('BUGFIX e HOTFIX devem estar vinculados a uma HU.', 400);
+  }
+
+  const atividadePai = await obter<
+    AtividadeBanco & {
+      nome_raia: string;
+    }
+  >(
+    `SELECT a.*, r.nome AS nome_raia
+     FROM ${TABELAS.atividades} a
+     JOIN ${TABELAS.raias} r ON r.id = a.raia_id
+     WHERE a.id = ? AND a.projeto_id = ?`,
+    [atividadePaiId, projetoId],
+  );
+
+  if (!atividadePai) {
+    throw new ApiErro('HU vinculada nao encontrada no projeto.', 404);
+  }
+
+  if (atividadeAtualId && atividadePai.id === atividadeAtualId) {
+    throw new ApiErro('Uma atividade nao pode ser vinculada a ela mesma.', 400);
+  }
+
+  if (atividadePai.tipo !== 'HU') {
+    throw new ApiErro('A atividade vinculada deve ser uma HU.', 400);
+  }
+
+  const nomeRaiaPai = normalizarNomeRaia(atividadePai.nome_raia);
+
+  if (tipo === 'BUGFIX' && nomeRaiaPai !== 'teste') {
+    throw new ApiErro('BUGFIX deve ser vinculado a uma HU que esteja na raia Teste.', 400);
+  }
+
+  if (tipo === 'HOTFIX' && nomeRaiaPai !== 'concluidas') {
+    throw new ApiErro('HOTFIX deve ser vinculado a uma HU que esteja na raia Concluídas.', 400);
+  }
+
+  return atividadePaiId;
 }
 
 function tratarAssincrono(
@@ -408,13 +537,25 @@ roteador.post(
     const projetoId = validarUuid(req.params.projetoId, 'projetoId');
     const dados = req.body as CriarAtividadePayload;
     const raiaId = validarUuid(dados.raiaId, 'raiaId');
+    const tipo = validarTipoAtividade(dados.tipo, 'tipo');
     validarObrigatorio(dados.raiaId, 'raiaId');
+    validarObrigatorio(dados.tipo, 'tipo');
     validarObrigatorio(dados.titulo, 'titulo');
     validarObrigatorio(dados.descricao, 'descricao');
     validarObrigatorio(dados.prioridade, 'prioridade');
     validarObrigatorio(dados.status, 'status');
     validarObrigatorio(dados.responsavel, 'responsavel');
     validarObrigatorio(dados.prazo, 'prazo');
+
+    const raiaDestino = await buscarRaiaPorId(raiaId);
+    const atividadePaiId = await validarAtividadePai(
+      projetoId,
+      tipo,
+      dados.atividadePaiId ? validarUuid(dados.atividadePaiId, 'atividadePaiId') : null,
+    );
+    const codigoReferencia = await gerarCodigoReferencia(tipo);
+    const status = statusPorRaia(raiaDestino.nome, dados.status);
+    const dataConclusao = dataConclusaoPorRaia(raiaDestino.nome, null);
 
     const linhaOrdem = await obter<ProximaOrdemLinha>(`SELECT COALESCE(MAX(ordem), 0) + 1 AS proxima_ordem FROM ${TABELAS.atividades} WHERE raia_id = ?`, [
       raiaId,
@@ -423,20 +564,24 @@ roteador.post(
     const id = randomUUID();
     await executar(
       `INSERT INTO ${TABELAS.atividades} (
-        id, projeto_id, raia_id, titulo, descricao, prioridade, status,
-        responsavel, prazo, etiquetas_json, checklist_json, comentarios_json,
+        id, projeto_id, raia_id, codigo_referencia, tipo, atividade_pai_id, titulo, descricao, prioridade, status,
+        responsavel, prazo, data_conclusao, etiquetas_json, checklist_json, comentarios_json,
         ordem, criado_em, atualizado_em
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         projetoId,
         raiaId,
+        codigoReferencia,
+        tipo,
+        atividadePaiId,
         String(dados.titulo).trim(),
         String(dados.descricao).trim(),
         dados.prioridade,
-        dados.status,
+        status,
         dados.responsavel,
         dados.prazo,
+        dataConclusao,
         JSON.stringify(dados.etiquetas ?? []),
         JSON.stringify(dados.checklist ?? []),
         JSON.stringify(dados.comentarios ?? []),
@@ -461,18 +606,34 @@ roteador.put(
     }
 
     const dados = req.body as AtualizarAtividadePayload;
-
     const novaRaiaId = dados.raiaId ? validarUuid(dados.raiaId, 'raiaId') : atividade.raia_id;
+    const tipo = dados.tipo ? validarTipoAtividade(dados.tipo, 'tipo') : atividade.tipo;
+    const raiaDestino = await buscarRaiaPorId(novaRaiaId);
+    const atividadePaiId = await validarAtividadePai(
+      atividade.projeto_id,
+      tipo,
+      dados.atividadePaiId === undefined
+        ? atividade.atividade_pai_id
+        : dados.atividadePaiId
+          ? validarUuid(dados.atividadePaiId, 'atividadePaiId')
+          : null,
+      atividade.id,
+    );
+    const status = statusPorRaia(raiaDestino.nome, (dados.status ?? atividade.status) as Atividade['status']);
+    const dataConclusao = dataConclusaoPorRaia(raiaDestino.nome, atividade.data_conclusao);
 
     await executar(
       `UPDATE ${TABELAS.atividades} SET
         raia_id = ?,
+        tipo = ?,
+        atividade_pai_id = ?,
         titulo = ?,
         descricao = ?,
         prioridade = ?,
         status = ?,
         responsavel = ?,
         prazo = ?,
+        data_conclusao = ?,
         etiquetas_json = ?,
         checklist_json = ?,
         comentarios_json = ?,
@@ -480,12 +641,15 @@ roteador.put(
       WHERE id = ?`,
       [
         novaRaiaId,
+        tipo,
+        atividadePaiId,
         String(dados.titulo ?? atividade.titulo).trim(),
         String(dados.descricao ?? atividade.descricao).trim(),
         dados.prioridade ?? atividade.prioridade,
-        dados.status ?? atividade.status,
+        status,
         dados.responsavel ?? atividade.responsavel,
         dados.prazo ?? atividade.prazo,
+        dataConclusao,
         JSON.stringify(dados.etiquetas ?? jsonSeguroParse(atividade.etiquetas_json, [])),
         JSON.stringify(dados.checklist ?? jsonSeguroParse(atividade.checklist_json, [])),
         JSON.stringify(dados.comentarios ?? jsonSeguroParse(atividade.comentarios_json, [])),
@@ -560,9 +724,23 @@ roteador.delete(
   '/atividades/:id',
   tratarAssincrono(async (req, res) => {
     const atividadeId = validarUuid(req.params.id, 'id');
-    const atividade = await obter<AtividadeBanco>(`SELECT * FROM ${TABELAS.atividades} WHERE id = ?`, [atividadeId]);
+    const atividade = await obter<
+      AtividadeBanco & {
+        nome_raia: string;
+      }
+    >(
+      `SELECT a.*, r.nome AS nome_raia
+       FROM ${TABELAS.atividades} a
+       JOIN ${TABELAS.raias} r ON r.id = a.raia_id
+       WHERE a.id = ?`,
+      [atividadeId],
+    );
     if (!atividade) {
       throw new ApiErro('Atividade nao encontrada.', 404);
+    }
+
+    if (atividade.data_conclusao || normalizarNomeRaia(atividade.nome_raia) === 'concluidas') {
+      throw new ApiErro('Atividades concluídas não podem ser excluídas.', 400);
     }
 
     await executar(`DELETE FROM ${TABELAS.atividades} WHERE id = ?`, [atividadeId]);
