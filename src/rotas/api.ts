@@ -70,6 +70,13 @@ interface ProximaOrdemLinha {
   proxima_ordem: number;
 }
 
+const TABELAS = {
+  usuarios: 'TB_Usuarios',
+  projetos: 'TB_Projetos',
+  raias: 'TB_Raias',
+  atividades: 'TB_Atividades',
+} as const;
+
 export const roteador = express.Router();
 
 function mapearProjeto(linha: ProjetoBanco): Projeto {
@@ -123,6 +130,17 @@ function validarObrigatorio(valor: unknown, campo: string): void {
   }
 }
 
+function validarUuid(valor: unknown, campo: string): string {
+  const uuid = String(valor ?? '').trim();
+  const regexUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+  if (!regexUuid.test(uuid)) {
+    throw new ApiErro(`Campo deve ser um UUID válido: ${campo}`, 400);
+  }
+
+  return uuid;
+}
+
 function tratarAssincrono(
   handler: (req: Request, res: Response, next: NextFunction) => Promise<void>,
 ): (req: Request, res: Response, next: NextFunction) => void {
@@ -134,7 +152,7 @@ function tratarAssincrono(
 roteador.get(
   '/usuarios',
   tratarAssincrono(async (_req, res) => {
-    const usuarios = await listar<Usuario>('SELECT id, nome, email, iniciais FROM usuarios ORDER BY nome');
+    const usuarios = await listar<Usuario>(`SELECT id, nome, email, iniciais FROM ${TABELAS.usuarios} ORDER BY nome`);
     res.json(usuarios);
   }),
 );
@@ -142,7 +160,7 @@ roteador.get(
 roteador.get(
   '/projetos',
   tratarAssincrono(async (_req, res) => {
-    const projetos = await listar<ProjetoBanco>('SELECT * FROM projetos ORDER BY principal DESC, atualizado_em DESC');
+    const projetos = await listar<ProjetoBanco>(`SELECT * FROM ${TABELAS.projetos} ORDER BY principal DESC, atualizado_em DESC`);
     res.json(projetos.map(mapearProjeto));
   }),
 );
@@ -150,7 +168,8 @@ roteador.get(
 roteador.get(
   '/projetos/:id',
   tratarAssincrono(async (req, res) => {
-    const projeto = await obter<ProjetoBanco>('SELECT * FROM projetos WHERE id = ?', [req.params.id]);
+    const projetoId = validarUuid(req.params.id, 'id');
+    const projeto = await obter<ProjetoBanco>(`SELECT * FROM ${TABELAS.projetos} WHERE id = ?`, [projetoId]);
     if (!projeto) {
       throw new ApiErro('Projeto nao encontrado.', 404);
     }
@@ -169,12 +188,12 @@ roteador.post(
     const id = randomUUID();
 
     await executar(
-      `INSERT INTO projetos (id, nome, descricao, cor, principal, status, criado_em, atualizado_em)
+      `INSERT INTO ${TABELAS.projetos} (id, nome, descricao, cor, principal, status, criado_em, atualizado_em)
        VALUES (?, ?, ?, ?, 0, 'ATIVO', ?, ?)`,
       [id, String(dados.nome).trim(), String(dados.descricao).trim(), dados.cor ?? null, agora, agora],
     );
 
-    const projeto = await obter<ProjetoBanco>('SELECT * FROM projetos WHERE id = ?', [id]);
+    const projeto = await obter<ProjetoBanco>(`SELECT * FROM ${TABELAS.projetos} WHERE id = ?`, [id]);
     res.status(201).json(mapearProjeto(projeto as ProjetoBanco));
   }),
 );
@@ -182,7 +201,8 @@ roteador.post(
 roteador.put(
   '/projetos/:id',
   tratarAssincrono(async (req, res) => {
-    const projetoExistente = await obter<ProjetoBanco>('SELECT * FROM projetos WHERE id = ?', [req.params.id]);
+    const projetoId = validarUuid(req.params.id, 'id');
+    const projetoExistente = await obter<ProjetoBanco>(`SELECT * FROM ${TABELAS.projetos} WHERE id = ?`, [projetoId]);
     if (!projetoExistente) {
       throw new ApiErro('Projeto nao encontrado.', 404);
     }
@@ -192,15 +212,15 @@ roteador.put(
     const descricao = String(dados.descricao ?? projetoExistente.descricao).trim();
     const cor = dados.cor ?? projetoExistente.cor;
 
-    await executar('UPDATE projetos SET nome = ?, descricao = ?, cor = ?, atualizado_em = ? WHERE id = ?', [
+    await executar(`UPDATE ${TABELAS.projetos} SET nome = ?, descricao = ?, cor = ?, atualizado_em = ? WHERE id = ?`, [
       nome,
       descricao,
       cor,
       agoraIso(),
-      req.params.id,
+      projetoId,
     ]);
 
-    const atualizado = await obter<ProjetoBanco>('SELECT * FROM projetos WHERE id = ?', [req.params.id]);
+    const atualizado = await obter<ProjetoBanco>(`SELECT * FROM ${TABELAS.projetos} WHERE id = ?`, [projetoId]);
     res.json(mapearProjeto(atualizado as ProjetoBanco));
   }),
 );
@@ -208,17 +228,18 @@ roteador.put(
 roteador.patch(
   '/projetos/:id/principal',
   tratarAssincrono(async (req, res) => {
-    const projetoExistente = await obter<ProjetoBanco>('SELECT * FROM projetos WHERE id = ?', [req.params.id]);
+    const projetoId = validarUuid(req.params.id, 'id');
+    const projetoExistente = await obter<ProjetoBanco>(`SELECT * FROM ${TABELAS.projetos} WHERE id = ?`, [projetoId]);
     if (!projetoExistente) {
       throw new ApiErro('Projeto nao encontrado.', 404);
     }
 
     await transacao(async () => {
-      await executar('UPDATE projetos SET principal = 0');
-      await executar('UPDATE projetos SET principal = 1, atualizado_em = ? WHERE id = ?', [agoraIso(), req.params.id]);
+      await executar(`UPDATE ${TABELAS.projetos} SET principal = 0`);
+      await executar(`UPDATE ${TABELAS.projetos} SET principal = 1, atualizado_em = ? WHERE id = ?`, [agoraIso(), projetoId]);
     });
 
-    const projeto = await obter<ProjetoBanco>('SELECT * FROM projetos WHERE id = ?', [req.params.id]);
+    const projeto = await obter<ProjetoBanco>(`SELECT * FROM ${TABELAS.projetos} WHERE id = ?`, [projetoId]);
     res.json(mapearProjeto(projeto as ProjetoBanco));
   }),
 );
@@ -226,18 +247,19 @@ roteador.patch(
 roteador.delete(
   '/projetos/:id',
   tratarAssincrono(async (req, res) => {
-    const projeto = await obter<ProjetoBanco>('SELECT * FROM projetos WHERE id = ?', [req.params.id]);
+    const projetoId = validarUuid(req.params.id, 'id');
+    const projeto = await obter<ProjetoBanco>(`SELECT * FROM ${TABELAS.projetos} WHERE id = ?`, [projetoId]);
     if (!projeto) {
       throw new ApiErro('Projeto nao encontrado.', 404);
     }
 
-    await executar('DELETE FROM projetos WHERE id = ?', [req.params.id]);
+    await executar(`DELETE FROM ${TABELAS.projetos} WHERE id = ?`, [projetoId]);
 
-    const principalAtual = await obter<IdApenas>('SELECT id FROM projetos WHERE principal = 1 LIMIT 1');
+    const principalAtual = await obter<IdApenas>(`SELECT id FROM ${TABELAS.projetos} WHERE principal = 1 LIMIT 1`);
     if (!principalAtual) {
-      const primeiroProjeto = await obter<IdApenas>('SELECT id FROM projetos ORDER BY atualizado_em DESC LIMIT 1');
+      const primeiroProjeto = await obter<IdApenas>(`SELECT id FROM ${TABELAS.projetos} ORDER BY atualizado_em DESC LIMIT 1`);
       if (primeiroProjeto) {
-        await executar('UPDATE projetos SET principal = 1 WHERE id = ?', [primeiroProjeto.id]);
+        await executar(`UPDATE ${TABELAS.projetos} SET principal = 1 WHERE id = ?`, [primeiroProjeto.id]);
       }
     }
 
@@ -248,7 +270,7 @@ roteador.delete(
 roteador.get(
   '/raias',
   tratarAssincrono(async (_req, res) => {
-    const raias = await listar<RaiaBanco>('SELECT * FROM raias ORDER BY projeto_id, ordem');
+    const raias = await listar<RaiaBanco>(`SELECT * FROM ${TABELAS.raias} ORDER BY projeto_id, ordem`);
     res.json(raias.map(mapearRaia));
   }),
 );
@@ -256,7 +278,8 @@ roteador.get(
 roteador.get(
   '/projetos/:projetoId/raias',
   tratarAssincrono(async (req, res) => {
-    const raias = await listar<RaiaBanco>('SELECT * FROM raias WHERE projeto_id = ? ORDER BY ordem', [req.params.projetoId]);
+    const projetoId = validarUuid(req.params.projetoId, 'projetoId');
+    const raias = await listar<RaiaBanco>(`SELECT * FROM ${TABELAS.raias} WHERE projeto_id = ? ORDER BY ordem`, [projetoId]);
     res.json(raias.map(mapearRaia));
   }),
 );
@@ -264,22 +287,23 @@ roteador.get(
 roteador.post(
   '/projetos/:projetoId/raias',
   tratarAssincrono(async (req, res) => {
+    const projetoId = validarUuid(req.params.projetoId, 'projetoId');
     const dados = req.body as CriarRaiaPayload;
     validarObrigatorio(dados.nome, 'nome');
 
     const linhaOrdem = await obter<ProximaOrdemLinha>(
-      'SELECT COALESCE(MAX(ordem), 0) + 1 AS proxima_ordem FROM raias WHERE projeto_id = ?',
-      [req.params.projetoId],
+      `SELECT COALESCE(MAX(ordem), 0) + 1 AS proxima_ordem FROM ${TABELAS.raias} WHERE projeto_id = ?`,
+      [projetoId],
     );
 
     const id = randomUUID();
     await executar(
-      `INSERT INTO raias (id, projeto_id, nome, ordem, cor, criado_em, atualizado_em)
+      `INSERT INTO ${TABELAS.raias} (id, projeto_id, nome, ordem, cor, criado_em, atualizado_em)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [id, req.params.projetoId, String(dados.nome).trim(), linhaOrdem?.proxima_ordem ?? 1, dados.cor ?? null, agoraIso(), agoraIso()],
+      [id, projetoId, String(dados.nome).trim(), linhaOrdem?.proxima_ordem ?? 1, dados.cor ?? null, agoraIso(), agoraIso()],
     );
 
-    const raia = await obter<RaiaBanco>('SELECT * FROM raias WHERE id = ?', [id]);
+    const raia = await obter<RaiaBanco>(`SELECT * FROM ${TABELAS.raias} WHERE id = ?`, [id]);
     res.status(201).json(mapearRaia(raia as RaiaBanco));
   }),
 );
@@ -287,20 +311,21 @@ roteador.post(
 roteador.put(
   '/raias/:id',
   tratarAssincrono(async (req, res) => {
-    const raia = await obter<RaiaBanco>('SELECT * FROM raias WHERE id = ?', [req.params.id]);
+    const raiaId = validarUuid(req.params.id, 'id');
+    const raia = await obter<RaiaBanco>(`SELECT * FROM ${TABELAS.raias} WHERE id = ?`, [raiaId]);
     if (!raia) {
       throw new ApiErro('Raia nao encontrada.', 404);
     }
 
     const dados = req.body as AtualizarRaiaPayload;
-    await executar('UPDATE raias SET nome = ?, cor = ?, atualizado_em = ? WHERE id = ?', [
+    await executar(`UPDATE ${TABELAS.raias} SET nome = ?, cor = ?, atualizado_em = ? WHERE id = ?`, [
       String(dados.nome ?? raia.nome).trim(),
       dados.cor ?? raia.cor,
       agoraIso(),
-      req.params.id,
+      raiaId,
     ]);
 
-    const atualizada = await obter<RaiaBanco>('SELECT * FROM raias WHERE id = ?', [req.params.id]);
+    const atualizada = await obter<RaiaBanco>(`SELECT * FROM ${TABELAS.raias} WHERE id = ?`, [raiaId]);
     res.json(mapearRaia(atualizada as RaiaBanco));
   }),
 );
@@ -308,21 +333,22 @@ roteador.put(
 roteador.put(
   '/projetos/:projetoId/raias/reordenar',
   tratarAssincrono(async (req, res) => {
+    const projetoId = validarUuid(req.params.projetoId, 'projetoId');
     const dados = req.body as ReordenarRaiasPayload;
-    const raias = Array.isArray(dados.raias) ? dados.raias : [];
+    const raias = Array.isArray(dados.raias) ? dados.raias.map((raia, indice) => ({ id: validarUuid(raia.id, `raias[${indice}].id`) })) : [];
 
     await transacao(async () => {
       for (let indice = 0; indice < raias.length; indice += 1) {
-        await executar('UPDATE raias SET ordem = ?, atualizado_em = ? WHERE id = ? AND projeto_id = ?', [
+        await executar(`UPDATE ${TABELAS.raias} SET ordem = ?, atualizado_em = ? WHERE id = ? AND projeto_id = ?`, [
           indice + 1,
           agoraIso(),
           raias[indice].id,
-          req.params.projetoId,
+          projetoId,
         ]);
       }
     });
 
-    const resultado = await listar<RaiaBanco>('SELECT * FROM raias WHERE projeto_id = ? ORDER BY ordem', [req.params.projetoId]);
+    const resultado = await listar<RaiaBanco>(`SELECT * FROM ${TABELAS.raias} WHERE projeto_id = ? ORDER BY ordem`, [projetoId]);
     res.json(resultado.map(mapearRaia));
   }),
 );
@@ -330,16 +356,17 @@ roteador.put(
 roteador.delete(
   '/raias/:id',
   tratarAssincrono(async (req, res) => {
-    const raia = await obter<RaiaBanco>('SELECT * FROM raias WHERE id = ?', [req.params.id]);
+    const raiaId = validarUuid(req.params.id, 'id');
+    const raia = await obter<RaiaBanco>(`SELECT * FROM ${TABELAS.raias} WHERE id = ?`, [raiaId]);
     if (!raia) {
       throw new ApiErro('Raia nao encontrada.', 404);
     }
 
-    await executar('DELETE FROM raias WHERE id = ?', [req.params.id]);
+    await executar(`DELETE FROM ${TABELAS.raias} WHERE id = ?`, [raiaId]);
 
-    const raiasProjeto = await listar<IdApenas>('SELECT id FROM raias WHERE projeto_id = ? ORDER BY ordem', [raia.projeto_id]);
+    const raiasProjeto = await listar<IdApenas>(`SELECT id FROM ${TABELAS.raias} WHERE projeto_id = ? ORDER BY ordem`, [raia.projeto_id]);
     for (let indice = 0; indice < raiasProjeto.length; indice += 1) {
-      await executar('UPDATE raias SET ordem = ?, atualizado_em = ? WHERE id = ?', [indice + 1, agoraIso(), raiasProjeto[indice].id]);
+      await executar(`UPDATE ${TABELAS.raias} SET ordem = ?, atualizado_em = ? WHERE id = ?`, [indice + 1, agoraIso(), raiasProjeto[indice].id]);
     }
 
     res.status(204).send();
@@ -349,7 +376,7 @@ roteador.delete(
 roteador.get(
   '/atividades',
   tratarAssincrono(async (_req, res) => {
-    const atividades = await listar<AtividadeBanco>('SELECT * FROM atividades ORDER BY projeto_id, raia_id, ordem');
+    const atividades = await listar<AtividadeBanco>(`SELECT * FROM ${TABELAS.atividades} ORDER BY projeto_id, raia_id, ordem`);
     res.json(atividades.map(mapearAtividade));
   }),
 );
@@ -357,7 +384,8 @@ roteador.get(
 roteador.get(
   '/projetos/:projetoId/atividades',
   tratarAssincrono(async (req, res) => {
-    const atividades = await listar<AtividadeBanco>('SELECT * FROM atividades WHERE projeto_id = ? ORDER BY ordem', [req.params.projetoId]);
+    const projetoId = validarUuid(req.params.projetoId, 'projetoId');
+    const atividades = await listar<AtividadeBanco>(`SELECT * FROM ${TABELAS.atividades} WHERE projeto_id = ? ORDER BY ordem`, [projetoId]);
     res.json(atividades.map(mapearAtividade));
   }),
 );
@@ -365,7 +393,8 @@ roteador.get(
 roteador.get(
   '/atividades/:id',
   tratarAssincrono(async (req, res) => {
-    const atividade = await obter<AtividadeBanco>('SELECT * FROM atividades WHERE id = ?', [req.params.id]);
+    const atividadeId = validarUuid(req.params.id, 'id');
+    const atividade = await obter<AtividadeBanco>(`SELECT * FROM ${TABELAS.atividades} WHERE id = ?`, [atividadeId]);
     if (!atividade) {
       throw new ApiErro('Atividade nao encontrada.', 404);
     }
@@ -376,7 +405,9 @@ roteador.get(
 roteador.post(
   '/projetos/:projetoId/atividades',
   tratarAssincrono(async (req, res) => {
+    const projetoId = validarUuid(req.params.projetoId, 'projetoId');
     const dados = req.body as CriarAtividadePayload;
+    const raiaId = validarUuid(dados.raiaId, 'raiaId');
     validarObrigatorio(dados.raiaId, 'raiaId');
     validarObrigatorio(dados.titulo, 'titulo');
     validarObrigatorio(dados.descricao, 'descricao');
@@ -385,21 +416,21 @@ roteador.post(
     validarObrigatorio(dados.responsavel, 'responsavel');
     validarObrigatorio(dados.prazo, 'prazo');
 
-    const linhaOrdem = await obter<ProximaOrdemLinha>('SELECT COALESCE(MAX(ordem), 0) + 1 AS proxima_ordem FROM atividades WHERE raia_id = ?', [
-      dados.raiaId,
+    const linhaOrdem = await obter<ProximaOrdemLinha>(`SELECT COALESCE(MAX(ordem), 0) + 1 AS proxima_ordem FROM ${TABELAS.atividades} WHERE raia_id = ?`, [
+      raiaId,
     ]);
 
     const id = randomUUID();
     await executar(
-      `INSERT INTO atividades (
+      `INSERT INTO ${TABELAS.atividades} (
         id, projeto_id, raia_id, titulo, descricao, prioridade, status,
         responsavel, prazo, etiquetas_json, checklist_json, comentarios_json,
         ordem, criado_em, atualizado_em
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
-        req.params.projetoId,
-        dados.raiaId,
+        projetoId,
+        raiaId,
         String(dados.titulo).trim(),
         String(dados.descricao).trim(),
         dados.prioridade,
@@ -415,7 +446,7 @@ roteador.post(
       ],
     );
 
-    const atividade = await obter<AtividadeBanco>('SELECT * FROM atividades WHERE id = ?', [id]);
+    const atividade = await obter<AtividadeBanco>(`SELECT * FROM ${TABELAS.atividades} WHERE id = ?`, [id]);
     res.status(201).json(mapearAtividade(atividade as AtividadeBanco));
   }),
 );
@@ -423,15 +454,18 @@ roteador.post(
 roteador.put(
   '/atividades/:id',
   tratarAssincrono(async (req, res) => {
-    const atividade = await obter<AtividadeBanco>('SELECT * FROM atividades WHERE id = ?', [req.params.id]);
+    const atividadeId = validarUuid(req.params.id, 'id');
+    const atividade = await obter<AtividadeBanco>(`SELECT * FROM ${TABELAS.atividades} WHERE id = ?`, [atividadeId]);
     if (!atividade) {
       throw new ApiErro('Atividade nao encontrada.', 404);
     }
 
     const dados = req.body as AtualizarAtividadePayload;
 
+    const novaRaiaId = dados.raiaId ? validarUuid(dados.raiaId, 'raiaId') : atividade.raia_id;
+
     await executar(
-      `UPDATE atividades SET
+      `UPDATE ${TABELAS.atividades} SET
         raia_id = ?,
         titulo = ?,
         descricao = ?,
@@ -445,7 +479,7 @@ roteador.put(
         atualizado_em = ?
       WHERE id = ?`,
       [
-        dados.raiaId ?? atividade.raia_id,
+        novaRaiaId,
         String(dados.titulo ?? atividade.titulo).trim(),
         String(dados.descricao ?? atividade.descricao).trim(),
         dados.prioridade ?? atividade.prioridade,
@@ -456,11 +490,11 @@ roteador.put(
         JSON.stringify(dados.checklist ?? jsonSeguroParse(atividade.checklist_json, [])),
         JSON.stringify(dados.comentarios ?? jsonSeguroParse(atividade.comentarios_json, [])),
         agoraIso(),
-        req.params.id,
+        atividadeId,
       ],
     );
 
-    const atualizada = await obter<AtividadeBanco>('SELECT * FROM atividades WHERE id = ?', [req.params.id]);
+    const atualizada = await obter<AtividadeBanco>(`SELECT * FROM ${TABELAS.atividades} WHERE id = ?`, [atividadeId]);
     res.json(mapearAtividade(atualizada as AtividadeBanco));
   }),
 );
@@ -468,15 +502,16 @@ roteador.put(
 roteador.patch(
   '/atividades/:id/checklist',
   tratarAssincrono(async (req, res) => {
+    const atividadeId = validarUuid(req.params.id, 'id');
     const dados = req.body as AtualizarChecklistPayload;
 
-    await executar('UPDATE atividades SET checklist_json = ?, atualizado_em = ? WHERE id = ?', [
+    await executar(`UPDATE ${TABELAS.atividades} SET checklist_json = ?, atualizado_em = ? WHERE id = ?`, [
       JSON.stringify(Array.isArray(dados.checklist) ? dados.checklist : []),
       agoraIso(),
-      req.params.id,
+      atividadeId,
     ]);
 
-    const atividade = await obter<AtividadeBanco>('SELECT * FROM atividades WHERE id = ?', [req.params.id]);
+    const atividade = await obter<AtividadeBanco>(`SELECT * FROM ${TABELAS.atividades} WHERE id = ?`, [atividadeId]);
     if (!atividade) {
       throw new ApiErro('Atividade nao encontrada.', 404);
     }
@@ -488,30 +523,35 @@ roteador.patch(
 roteador.post(
   '/atividades/:id/comentarios',
   tratarAssincrono(async (req, res) => {
+    const atividadeId = validarUuid(req.params.id, 'id');
     const dados = req.body as AdicionarComentarioPayload;
     validarObrigatorio(dados.texto, 'texto');
 
-    const atividade = await obter<AtividadeBanco>('SELECT * FROM atividades WHERE id = ?', [req.params.id]);
+    const atividade = await obter<AtividadeBanco>(`SELECT * FROM ${TABELAS.atividades} WHERE id = ?`, [atividadeId]);
     if (!atividade) {
       throw new ApiErro('Atividade nao encontrada.', 404);
     }
 
+    const usuarioIdComentario = dados.usuarioId
+      ? validarUuid(dados.usuarioId, 'usuarioId')
+      : validarUuid(req.autenticacao?.usuarioId, 'usuarioId');
+
     const comentarios = jsonSeguroParse<Comentario[]>(atividade.comentarios_json, []);
     comentarios.push({
       id: randomUUID(),
-      atividadeId: String(req.params.id),
-      usuarioId: dados.usuarioId ?? 'Usuario atual',
+      atividadeId,
+      usuarioId: usuarioIdComentario,
       texto: String(dados.texto).trim(),
       criadoEm: agoraIso(),
     });
 
-    await executar('UPDATE atividades SET comentarios_json = ?, atualizado_em = ? WHERE id = ?', [
+    await executar(`UPDATE ${TABELAS.atividades} SET comentarios_json = ?, atualizado_em = ? WHERE id = ?`, [
       JSON.stringify(comentarios),
       agoraIso(),
-      req.params.id,
+      atividadeId,
     ]);
 
-    const atualizada = await obter<AtividadeBanco>('SELECT * FROM atividades WHERE id = ?', [req.params.id]);
+    const atualizada = await obter<AtividadeBanco>(`SELECT * FROM ${TABELAS.atividades} WHERE id = ?`, [atividadeId]);
     res.json(mapearAtividade(atualizada as AtividadeBanco));
   }),
 );
@@ -519,16 +559,17 @@ roteador.post(
 roteador.delete(
   '/atividades/:id',
   tratarAssincrono(async (req, res) => {
-    const atividade = await obter<AtividadeBanco>('SELECT * FROM atividades WHERE id = ?', [req.params.id]);
+    const atividadeId = validarUuid(req.params.id, 'id');
+    const atividade = await obter<AtividadeBanco>(`SELECT * FROM ${TABELAS.atividades} WHERE id = ?`, [atividadeId]);
     if (!atividade) {
       throw new ApiErro('Atividade nao encontrada.', 404);
     }
 
-    await executar('DELETE FROM atividades WHERE id = ?', [req.params.id]);
+    await executar(`DELETE FROM ${TABELAS.atividades} WHERE id = ?`, [atividadeId]);
 
-    const atividadesRaia = await listar<IdApenas>('SELECT id FROM atividades WHERE raia_id = ? ORDER BY ordem', [atividade.raia_id]);
+    const atividadesRaia = await listar<IdApenas>(`SELECT id FROM ${TABELAS.atividades} WHERE raia_id = ? ORDER BY ordem`, [atividade.raia_id]);
     for (let indice = 0; indice < atividadesRaia.length; indice += 1) {
-      await executar('UPDATE atividades SET ordem = ?, atualizado_em = ? WHERE id = ?', [
+      await executar(`UPDATE ${TABELAS.atividades} SET ordem = ?, atualizado_em = ? WHERE id = ?`, [
         indice + 1,
         agoraIso(),
         atividadesRaia[indice].id,
@@ -542,21 +583,24 @@ roteador.delete(
 roteador.put(
   '/raias/:raiaId/atividades/reordenar',
   tratarAssincrono(async (req, res) => {
+    const raiaId = validarUuid(req.params.raiaId, 'raiaId');
     const dados = req.body as ReordenarAtividadesPayload;
-    const atividades = Array.isArray(dados.atividades) ? dados.atividades : [];
+    const atividades = Array.isArray(dados.atividades)
+      ? dados.atividades.map((atividade, indice) => ({ id: validarUuid(atividade.id, `atividades[${indice}].id`) }))
+      : [];
 
     await transacao(async () => {
       for (let indice = 0; indice < atividades.length; indice += 1) {
-        await executar('UPDATE atividades SET ordem = ?, atualizado_em = ? WHERE id = ? AND raia_id = ?', [
+        await executar(`UPDATE ${TABELAS.atividades} SET ordem = ?, atualizado_em = ? WHERE id = ? AND raia_id = ?`, [
           indice + 1,
           agoraIso(),
           atividades[indice].id,
-          req.params.raiaId,
+          raiaId,
         ]);
       }
     });
 
-    const resultado = await listar<AtividadeBanco>('SELECT * FROM atividades WHERE raia_id = ? ORDER BY ordem', [req.params.raiaId]);
+    const resultado = await listar<AtividadeBanco>(`SELECT * FROM ${TABELAS.atividades} WHERE raia_id = ? ORDER BY ordem`, [raiaId]);
     res.json(resultado.map(mapearAtividade));
   }),
 );

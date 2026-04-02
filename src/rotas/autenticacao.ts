@@ -19,6 +19,13 @@ import { enviarCodigoSegundoFator } from '../notificacao/email';
 import { ApiErro, responderProblema } from '../tipos/erros';
 import { agoraIso } from '../util/serializacao';
 
+const TABELAS = {
+  usuarios: 'TB_Usuarios',
+  usuariosAuth: 'TB_Usuarios_Auth',
+  sessoesAuth: 'TB_Sessoes_Auth',
+  desafios2fa: 'TB_Desafios_2FA',
+} as const;
+
 interface UsuarioAuthLinha {
   id: string;
   nome: string;
@@ -158,7 +165,7 @@ async function registrarNovaSessao(
   }
 
   await executar(
-    `INSERT INTO sessoes_auth (id, usuario_id, token_hash, expira_em, revogado_em, ip_origem, user_agent, criado_em, atualizado_em)
+    `INSERT INTO ${TABELAS.sessoesAuth} (id, usuario_id, token_hash, expira_em, revogado_em, ip_origem, user_agent, criado_em, atualizado_em)
      VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?)`,
     [
       identificadorSessao,
@@ -181,8 +188,8 @@ async function registrarNovaSessao(
 async function buscarUsuarioPorEmail(email: string): Promise<UsuarioAuthLinha | null> {
   return obter<UsuarioAuthLinha>(
     `SELECT u.id, u.nome, u.email, u.iniciais, a.senha_hash, a.tentativas_falha, a.bloqueado_ate
-     FROM usuarios u
-     JOIN usuarios_auth a ON a.usuario_id = u.id
+     FROM ${TABELAS.usuarios} u
+     JOIN ${TABELAS.usuariosAuth} a ON a.usuario_id = u.id
      WHERE LOWER(u.email) = ?`,
     [normalizarEmail(email)],
   );
@@ -191,8 +198,8 @@ async function buscarUsuarioPorEmail(email: string): Promise<UsuarioAuthLinha | 
 async function buscarUsuarioPorId(usuarioId: string): Promise<UsuarioAuthLinha | null> {
   return obter<UsuarioAuthLinha>(
     `SELECT u.id, u.nome, u.email, u.iniciais, a.senha_hash, a.tentativas_falha, a.bloqueado_ate
-     FROM usuarios u
-     JOIN usuarios_auth a ON a.usuario_id = u.id
+     FROM ${TABELAS.usuarios} u
+     JOIN ${TABELAS.usuariosAuth} a ON a.usuario_id = u.id
      WHERE u.id = ?`,
     [usuarioId],
   );
@@ -206,7 +213,7 @@ async function incrementarTentativasFalha(usuario: UsuarioAuthLinha): Promise<vo
       : null;
 
   await executar(
-    `UPDATE usuarios_auth
+    `UPDATE ${TABELAS.usuariosAuth}
      SET tentativas_falha = ?, bloqueado_ate = ?, atualizado_em = ?
      WHERE usuario_id = ?`,
     [proximaTentativa >= limiteFalhas ? 0 : proximaTentativa, bloqueadoAte, agoraIso(), usuario.id],
@@ -215,7 +222,7 @@ async function incrementarTentativasFalha(usuario: UsuarioAuthLinha): Promise<vo
 
 async function resetarTentativasFalha(usuarioId: string): Promise<void> {
   await executar(
-    `UPDATE usuarios_auth
+    `UPDATE ${TABELAS.usuariosAuth}
      SET tentativas_falha = 0, bloqueado_ate = NULL, ultimo_login_em = ?, atualizado_em = ?
      WHERE usuario_id = ?`,
     [agoraIso(), agoraIso(), usuarioId],
@@ -228,7 +235,7 @@ async function criarDesafioDoisFatores(usuario: UsuarioAuthLinha, req: Request):
   const expiraEm = new Date(Date.now() + validadeCodigoMinutos * 60 * 1000).toISOString();
 
   await executar(
-    `INSERT INTO desafios_2fa (
+    `INSERT INTO ${TABELAS.desafios2fa} (
       id, usuario_id, codigo_hash, tentativas_falha, expira_em, consumido_em, ip_origem, user_agent, criado_em, atualizado_em
     ) VALUES (?, ?, ?, 0, ?, NULL, ?, ?, ?, ?)`,
     [
@@ -303,7 +310,7 @@ roteadorAutenticacao.post('/2fa/validar', limiteValidacaoCodigo, async (req, res
 
     const desafio = await obter<DesafioDoisFatoresLinha>(
       `SELECT id, usuario_id, codigo_hash, tentativas_falha, expira_em, consumido_em
-       FROM desafios_2fa
+       FROM ${TABELAS.desafios2fa}
        WHERE id = ? AND usuario_id = ?`,
       [payload.desafioId, payload.usuarioId],
     );
@@ -318,7 +325,7 @@ roteadorAutenticacao.post('/2fa/validar', limiteValidacaoCodigo, async (req, res
       const consumidoEm = proximaTentativa >= limiteFalhasDesafio ? agoraIso() : null;
 
       await executar(
-        `UPDATE desafios_2fa
+        `UPDATE ${TABELAS.desafios2fa}
          SET tentativas_falha = ?, consumido_em = COALESCE(consumido_em, ?), atualizado_em = ?
          WHERE id = ?`,
         [proximaTentativa, consumidoEm, agoraIso(), desafio.id],
@@ -333,7 +340,7 @@ roteadorAutenticacao.post('/2fa/validar', limiteValidacaoCodigo, async (req, res
     }
 
     const sessao = await transacao(async () => {
-      await executar('UPDATE desafios_2fa SET consumido_em = ?, atualizado_em = ? WHERE id = ?', [agoraIso(), agoraIso(), desafio.id]);
+      await executar(`UPDATE ${TABELAS.desafios2fa} SET consumido_em = ?, atualizado_em = ? WHERE id = ?`, [agoraIso(), agoraIso(), desafio.id]);
       await resetarTentativasFalha(usuario.id);
       return registrarNovaSessao(usuario, req);
     });
@@ -364,7 +371,7 @@ roteadorAutenticacao.post('/refresh', async (req, res, next) => {
     const hashAtual = hashToken(tokenRefreshAtual);
     const sessao = await obter<SessaoAuthLinha>(
       `SELECT id, usuario_id, token_hash, expira_em, revogado_em
-       FROM sessoes_auth
+       FROM ${TABELAS.sessoesAuth}
        WHERE token_hash = ?`,
       [hashAtual],
     );
@@ -379,7 +386,7 @@ roteadorAutenticacao.post('/refresh', async (req, res, next) => {
     }
 
     const novaSessao = await transacao(async () => {
-      await executar('UPDATE sessoes_auth SET revogado_em = ?, atualizado_em = ? WHERE id = ?', [
+      await executar(`UPDATE ${TABELAS.sessoesAuth} SET revogado_em = ?, atualizado_em = ? WHERE id = ?`, [
         agoraIso(),
         agoraIso(),
         sessao.id,
@@ -404,7 +411,7 @@ roteadorAutenticacao.post('/logout', async (req, res, next) => {
 
     if (tokenRefreshAtual) {
       await executar(
-        `UPDATE sessoes_auth
+        `UPDATE ${TABELAS.sessoesAuth}
          SET revogado_em = COALESCE(revogado_em, ?), atualizado_em = ?
          WHERE token_hash = ?`,
         [agoraIso(), agoraIso(), hashToken(tokenRefreshAtual)],

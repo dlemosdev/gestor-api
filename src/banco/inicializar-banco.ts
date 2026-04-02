@@ -37,11 +37,49 @@ interface DadosIniciaisAtividade {
   ordem: number;
 }
 
+const RAIAS_PADRAO_PROJETO = ['Backlog', 'Em andamento', 'Teste', 'Aguardando publicacao', 'Concluidas'] as const;
+const TABELAS = {
+  usuarios: 'TB_Usuarios',
+  usuariosAuth: 'TB_Usuarios_Auth',
+  projetos: 'TB_Projetos',
+  raias: 'TB_Raias',
+  atividades: 'TB_Atividades',
+  sessoesAuth: 'TB_Sessoes_Auth',
+  desafios2fa: 'TB_Desafios_2FA',
+} as const;
+const IDS_SEED = {
+  usuarios: {
+    denner: '1d8b4f39-4c73-4f64-a1db-9b1f54d7c101',
+    bruno: '4f94e1d7-2dfb-4c91-8f2f-7d57d4e27202',
+    carla: 'a6b84303-3cb9-4fc4-8a4b-6b7a3bfdb303',
+    diego: '7b4d0ef4-2d3d-4d03-97af-9043ff5af404',
+  },
+  projetos: {
+    portalCorporativo: 'c0831f83-9d07-4f1e-8c18-2a7cce9a5101',
+    appComercial: 'f8b1f2fd-90fe-4c8a-a59b-a3d86af85202',
+    migracaoCrm: '3ac98317-a548-48fd-8d89-c0b28ca40303',
+  },
+  raias: {
+    backlog: 'e46a2445-fd1d-4300-84d7-cdf7d5ad6101',
+    andamento: 'fb94f0a8-c65d-4f3b-9a32-2ac3940f6202',
+    teste: '7d34211c-3d54-40c9-bc73-c3bb26df6303',
+    aguardandoPublicacao: 'aa9c56f5-8ac0-45ea-bd7e-c72e39076404',
+    concluida: 'b1f45072-a8fc-460f-a253-4d9507c76505',
+  },
+  atividades: {
+    backlogInicial: 'c6c568d7-1704-412c-b8d9-632e31d9a701',
+  },
+  checklist: {
+    refinarEscopo: 'f58ced0c-4eb8-4a88-a4de-a4d0bebc8101',
+    validarProduto: '6594ec11-48bc-4538-84e4-928f1e2f8202',
+  },
+} as const;
+
 export async function criarTabelas(): Promise<void> {
   await executar('PRAGMA foreign_keys = ON');
 
   await executar(`
-    CREATE TABLE IF NOT EXISTS usuarios (
+    CREATE TABLE IF NOT EXISTS ${TABELAS.usuarios} (
       id TEXT PRIMARY KEY,
       nome TEXT NOT NULL,
       email TEXT NOT NULL,
@@ -52,7 +90,7 @@ export async function criarTabelas(): Promise<void> {
   `);
 
   await executar(`
-    CREATE TABLE IF NOT EXISTS usuarios_auth (
+    CREATE TABLE IF NOT EXISTS ${TABELAS.usuariosAuth} (
       usuario_id TEXT PRIMARY KEY,
       senha_hash TEXT NOT NULL,
       tentativas_falha INTEGER NOT NULL DEFAULT 0,
@@ -60,12 +98,12 @@ export async function criarTabelas(): Promise<void> {
       ultimo_login_em TEXT,
       criado_em TEXT NOT NULL,
       atualizado_em TEXT NOT NULL,
-      FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
+      FOREIGN KEY (usuario_id) REFERENCES ${TABELAS.usuarios}(id) ON DELETE CASCADE
     )
   `);
 
   await executar(`
-    CREATE TABLE IF NOT EXISTS projetos (
+    CREATE TABLE IF NOT EXISTS ${TABELAS.projetos} (
       id TEXT PRIMARY KEY,
       nome TEXT NOT NULL,
       descricao TEXT NOT NULL,
@@ -78,7 +116,7 @@ export async function criarTabelas(): Promise<void> {
   `);
 
   await executar(`
-    CREATE TABLE IF NOT EXISTS raias (
+    CREATE TABLE IF NOT EXISTS ${TABELAS.raias} (
       id TEXT PRIMARY KEY,
       projeto_id TEXT NOT NULL,
       nome TEXT NOT NULL,
@@ -86,12 +124,12 @@ export async function criarTabelas(): Promise<void> {
       cor TEXT,
       criado_em TEXT NOT NULL,
       atualizado_em TEXT NOT NULL,
-      FOREIGN KEY (projeto_id) REFERENCES projetos(id) ON DELETE CASCADE
+      FOREIGN KEY (projeto_id) REFERENCES ${TABELAS.projetos}(id) ON DELETE CASCADE
     )
   `);
 
   await executar(`
-    CREATE TABLE IF NOT EXISTS atividades (
+    CREATE TABLE IF NOT EXISTS ${TABELAS.atividades} (
       id TEXT PRIMARY KEY,
       projeto_id TEXT NOT NULL,
       raia_id TEXT NOT NULL,
@@ -107,13 +145,13 @@ export async function criarTabelas(): Promise<void> {
       ordem INTEGER NOT NULL,
       criado_em TEXT NOT NULL,
       atualizado_em TEXT NOT NULL,
-      FOREIGN KEY (projeto_id) REFERENCES projetos(id) ON DELETE CASCADE,
-      FOREIGN KEY (raia_id) REFERENCES raias(id) ON DELETE CASCADE
+      FOREIGN KEY (projeto_id) REFERENCES ${TABELAS.projetos}(id) ON DELETE CASCADE,
+      FOREIGN KEY (raia_id) REFERENCES ${TABELAS.raias}(id) ON DELETE CASCADE
     )
   `);
 
   await executar(`
-    CREATE TABLE IF NOT EXISTS sessoes_auth (
+    CREATE TABLE IF NOT EXISTS ${TABELAS.sessoesAuth} (
       id TEXT PRIMARY KEY,
       usuario_id TEXT NOT NULL,
       token_hash TEXT NOT NULL UNIQUE,
@@ -123,12 +161,12 @@ export async function criarTabelas(): Promise<void> {
       user_agent TEXT,
       criado_em TEXT NOT NULL,
       atualizado_em TEXT NOT NULL,
-      FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
+      FOREIGN KEY (usuario_id) REFERENCES ${TABELAS.usuarios}(id) ON DELETE CASCADE
     )
   `);
 
   await executar(`
-    CREATE TABLE IF NOT EXISTS desafios_2fa (
+    CREATE TABLE IF NOT EXISTS ${TABELAS.desafios2fa} (
       id TEXT PRIMARY KEY,
       usuario_id TEXT NOT NULL,
       codigo_hash TEXT NOT NULL,
@@ -139,56 +177,57 @@ export async function criarTabelas(): Promise<void> {
       user_agent TEXT,
       criado_em TEXT NOT NULL,
       atualizado_em TEXT NOT NULL,
-      FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
+      FOREIGN KEY (usuario_id) REFERENCES ${TABELAS.usuarios}(id) ON DELETE CASCADE
     )
   `);
 
-  await executar('CREATE INDEX IF NOT EXISTS idx_raias_projeto_ordem ON raias(projeto_id, ordem)');
-  await executar('CREATE INDEX IF NOT EXISTS idx_atividades_projeto ON atividades(projeto_id)');
-  await executar('CREATE INDEX IF NOT EXISTS idx_atividades_raia_ordem ON atividades(raia_id, ordem)');
-  await executar('CREATE INDEX IF NOT EXISTS idx_sessoes_auth_usuario ON sessoes_auth(usuario_id)');
-  await executar('CREATE INDEX IF NOT EXISTS idx_desafios_2fa_usuario ON desafios_2fa(usuario_id)');
-  await executar('CREATE INDEX IF NOT EXISTS idx_desafios_2fa_expira ON desafios_2fa(expira_em)');
+  await executar(`CREATE INDEX IF NOT EXISTS IDX_TB_Raias_Projeto_Ordem ON ${TABELAS.raias}(projeto_id, ordem)`);
+  await executar(`CREATE INDEX IF NOT EXISTS IDX_TB_Atividades_Projeto ON ${TABELAS.atividades}(projeto_id)`);
+  await executar(`CREATE INDEX IF NOT EXISTS IDX_TB_Atividades_Raia_Ordem ON ${TABELAS.atividades}(raia_id, ordem)`);
+  await executar(`CREATE INDEX IF NOT EXISTS IDX_TB_Sessoes_Auth_Usuario ON ${TABELAS.sessoesAuth}(usuario_id)`);
+  await executar(`CREATE INDEX IF NOT EXISTS IDX_TB_Desafios_2FA_Usuario ON ${TABELAS.desafios2fa}(usuario_id)`);
+  await executar(`CREATE INDEX IF NOT EXISTS IDX_TB_Desafios_2FA_Expira ON ${TABELAS.desafios2fa}(expira_em)`);
 }
 
 async function garantirUsuariosAuth(): Promise<void> {
   const agora = agoraIso();
   const senhaPadraoInicial = process.env.SENHA_PADRAO_INICIAL ?? 'Gestor@123';
   const hashSenhaPadrao = await bcrypt.hash(senhaPadraoInicial, 12);
-  const usuarios = await listar<{ id: string }>('SELECT id FROM usuarios');
+  const usuarios = await listar<{ id: string }>(`SELECT id FROM ${TABELAS.usuarios}`);
 
   if (usuarios.length === 0) {
     return;
   }
 
   await executar(
-    `INSERT OR IGNORE INTO usuarios_auth (
+    `INSERT OR IGNORE INTO ${TABELAS.usuariosAuth} (
       usuario_id, senha_hash, tentativas_falha, bloqueado_ate, ultimo_login_em, criado_em, atualizado_em
     )
-    SELECT id, ?, 0, NULL, NULL, ?, ? FROM usuarios`,
+    SELECT id, ?, 0, NULL, NULL, ?, ? FROM ${TABELAS.usuarios}`,
     [hashSenhaPadrao, agora, agora],
   );
 }
 
 export async function seedInicial(): Promise<void> {
-  const projetoExistente = await obter<{ id: string }>('SELECT id FROM projetos LIMIT 1');
-  const agora = agoraIso();
+  const projetoExistente = await obter<{ id: string }>(`SELECT id FROM ${TABELAS.projetos} LIMIT 1`);
 
   if (projetoExistente) {
     await garantirUsuariosAuth();
     return;
   }
 
+  const agora = agoraIso();
+
   const usuarios = [
-    { id: 'usuario-denner', nome: 'Denner Lemos', email: 'dennerlemos.dev@gmail.com', iniciais: 'DL' },
-    { id: 'usuario-bruno', nome: 'Bruno Costa', email: 'bruno.costa@empresa.com', iniciais: 'BC' },
-    { id: 'usuario-carla', nome: 'Carla Souza', email: 'carla.souza@empresa.com', iniciais: 'CS' },
-    { id: 'usuario-diego', nome: 'Diego Lima', email: 'diego.lima@empresa.com', iniciais: 'DL' },
+    { id: IDS_SEED.usuarios.denner, nome: 'Denner Lemos', email: 'dennerlemos.dev@gmail.com', iniciais: 'DL' },
+    { id: IDS_SEED.usuarios.bruno, nome: 'Bruno Costa', email: 'bruno.costa@empresa.com', iniciais: 'BC' },
+    { id: IDS_SEED.usuarios.carla, nome: 'Carla Souza', email: 'carla.souza@empresa.com', iniciais: 'CS' },
+    { id: IDS_SEED.usuarios.diego, nome: 'Diego Lima', email: 'diego.lima@empresa.com', iniciais: 'DL' },
   ];
 
   for (const usuario of usuarios) {
     await executar(
-      `INSERT INTO usuarios (id, nome, email, iniciais, criado_em, atualizado_em)
+      `INSERT INTO ${TABELAS.usuarios} (id, nome, email, iniciais, criado_em, atualizado_em)
        VALUES (?, ?, ?, ?, ?, ?)`,
       [usuario.id, usuario.nome, usuario.email, usuario.iniciais, agora, agora],
     );
@@ -198,7 +237,7 @@ export async function seedInicial(): Promise<void> {
 
   const projetos: DadosIniciaisProjeto[] = [
     {
-      id: 'projeto-portal-corporativo',
+      id: IDS_SEED.projetos.portalCorporativo,
       nome: 'Portal Corporativo',
       descricao: 'Evolução do portal institucional com board visual por raias dinâmicas.',
       cor: '#2563eb',
@@ -206,7 +245,7 @@ export async function seedInicial(): Promise<void> {
       status: 'ATIVO',
     },
     {
-      id: 'projeto-app-comercial',
+      id: IDS_SEED.projetos.appComercial,
       nome: 'Aplicativo Comercial',
       descricao: 'Organização das iniciativas mobile para o ciclo Q2.',
       cor: '#0ea5e9',
@@ -214,7 +253,7 @@ export async function seedInicial(): Promise<void> {
       status: 'ATIVO',
     },
     {
-      id: 'projeto-migracao-crm',
+      id: IDS_SEED.projetos.migracaoCrm,
       nome: 'Migração CRM',
       descricao: 'Planejamento técnico e acompanhamento da migração de dados de vendas.',
       cor: '#6366f1',
@@ -225,22 +264,31 @@ export async function seedInicial(): Promise<void> {
 
   for (const projeto of projetos) {
     await executar(
-      `INSERT INTO projetos (id, nome, descricao, cor, principal, status, criado_em, atualizado_em)
+      `INSERT INTO ${TABELAS.projetos} (id, nome, descricao, cor, principal, status, criado_em, atualizado_em)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [projeto.id, projeto.nome, projeto.descricao, projeto.cor, projeto.principal, projeto.status, agora, agora],
     );
   }
 
-  const raias: DadosIniciaisRaia[] = [
-    { id: 'raia-backlog', projetoId: 'projeto-portal-corporativo', nome: 'Backlog', ordem: 1 },
-    { id: 'raia-andamento', projetoId: 'projeto-portal-corporativo', nome: 'Em andamento', ordem: 2 },
-    { id: 'raia-bloqueada', projetoId: 'projeto-portal-corporativo', nome: 'Bloqueadas', ordem: 3 },
-    { id: 'raia-concluida', projetoId: 'projeto-portal-corporativo', nome: 'Concluídas', ordem: 4 },
-  ];
+  const raias: DadosIniciaisRaia[] = RAIAS_PADRAO_PROJETO.map((nome, indice) => ({
+    id:
+      indice === 0
+        ? IDS_SEED.raias.backlog
+        : indice === 1
+          ? IDS_SEED.raias.andamento
+          : indice === 2
+            ? IDS_SEED.raias.teste
+            : indice === 3
+              ? IDS_SEED.raias.aguardandoPublicacao
+              : IDS_SEED.raias.concluida,
+    projetoId: IDS_SEED.projetos.portalCorporativo,
+    nome,
+    ordem: indice + 1,
+  }));
 
   for (const raia of raias) {
     await executar(
-      `INSERT INTO raias (id, projeto_id, nome, ordem, cor, criado_em, atualizado_em)
+      `INSERT INTO ${TABELAS.raias} (id, projeto_id, nome, ordem, cor, criado_em, atualizado_em)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [raia.id, raia.projetoId, raia.nome, raia.ordem, null, agora, agora],
     );
@@ -248,9 +296,9 @@ export async function seedInicial(): Promise<void> {
 
   const atividades: DadosIniciaisAtividade[] = [
     {
-      id: 'atividade-backlog-1',
-      projetoId: 'projeto-portal-corporativo',
-      raiaId: 'raia-backlog',
+      id: IDS_SEED.atividades.backlogInicial,
+      projetoId: IDS_SEED.projetos.portalCorporativo,
+      raiaId: IDS_SEED.raias.backlog,
       titulo: 'Mapear backlog técnico inicial',
       descricao: 'Levantamento de histórias e alinhamento com arquitetura frontend.',
       prioridade: 'ALTA',
@@ -262,14 +310,14 @@ export async function seedInicial(): Promise<void> {
         { nome: 'Planejamento', cor: '#7C3AED' },
       ],
       checklist: [
-        { id: 'check-1', titulo: 'Refinar escopo', concluido: true },
-        { id: 'check-2', titulo: 'Validar com produto', concluido: false },
+        { id: IDS_SEED.checklist.refinarEscopo, titulo: 'Refinar escopo', concluido: true },
+        { id: IDS_SEED.checklist.validarProduto, titulo: 'Validar com produto', concluido: false },
       ],
       comentarios: [
         {
           id: randomUUID(),
-          atividadeId: 'atividade-backlog-1',
-          usuarioId: 'Bruno Costa',
+          atividadeId: IDS_SEED.atividades.backlogInicial,
+          usuarioId: IDS_SEED.usuarios.bruno,
           texto: 'Precisamos incluir riscos de integração com autenticação.',
           criadoEm: agora,
         },
@@ -280,7 +328,7 @@ export async function seedInicial(): Promise<void> {
 
   for (const atividade of atividades) {
     await executar(
-      `INSERT INTO atividades (
+      `INSERT INTO ${TABELAS.atividades} (
         id, projeto_id, raia_id, titulo, descricao, prioridade, status,
         responsavel, prazo, etiquetas_json, checklist_json, comentarios_json,
         ordem, criado_em, atualizado_em
