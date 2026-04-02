@@ -1,4 +1,4 @@
-﻿# API Gestor (TypeScript)
+# API Gestor (TypeScript)
 
 API REST em Node.js + Express + SQLite com tipagem forte em TypeScript.
 
@@ -6,8 +6,8 @@ API REST em Node.js + Express + SQLite com tipagem forte em TypeScript.
 
 ```bash
 cd gestor-api
-npm install
-npm run dev
+pnpm install
+pnpm dev
 ```
 
 API: `http://localhost:3333/api`
@@ -15,8 +15,8 @@ API: `http://localhost:3333/api`
 ## Build de produção
 
 ```bash
-npm run build
-npm run start
+pnpm build
+pnpm start
 ```
 
 ## Endpoints principais
@@ -49,3 +49,4 @@ O arquivo SQLite é criado automaticamente em:
 - `gestor-api/dados.db`
 
 Também é aplicado seed inicial com usuários, projetos, raias e atividades.
+
