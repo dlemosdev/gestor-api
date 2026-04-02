@@ -6,12 +6,15 @@ import { executar, listar, obter, transacao } from '../banco/conexao';
 import {
   AdicionarComentarioPayload,
   Atividade,
+  AtualizarStatusProjetoPayload,
   AtualizarAtividadePayload,
   AtualizarChecklistPayload,
   AtualizarProjetoPayload,
   Comentario,
   CriarAtividadePayload,
   CriarProjetoPayload,
+  HistoricoAtividade,
+  HistoricoProjeto,
   Projeto,
   Raia,
   RaiaPadraoProjeto,
@@ -28,9 +31,22 @@ interface ProjetoBanco {
   descricao: string;
   cor: string | null;
   principal: number;
-  status: 'ATIVO' | 'INATIVO';
+  status: 'ATIVO' | 'INATIVO' | 'CONCLUIDO';
+  data_inicial: string | null;
+  data_final: string | null;
+  inativado_em: string | null;
+  concluido_em: string | null;
+  reativado_em: string | null;
   criado_em: string;
   atualizado_em: string;
+}
+
+interface HistoricoProjetoBanco {
+  id: string;
+  projeto_id: string;
+  tipo: HistoricoProjeto['tipo'];
+  descricao: string;
+  criado_em: string;
 }
 
 interface RaiaBanco {
@@ -65,6 +81,17 @@ interface AtividadeBanco {
   atualizado_em: string;
 }
 
+interface HistoricoAtividadeBanco {
+  id: string;
+  atividade_id: string;
+  projeto_id: string;
+  tipo: HistoricoAtividade['tipo'];
+  descricao: string;
+  origem: string | null;
+  destino: string | null;
+  criado_em: string;
+}
+
 interface IdApenas {
   id: string;
 }
@@ -80,8 +107,10 @@ interface ProximaOrdemLinha {
 const TABELAS = {
   usuarios: 'TB_Usuarios',
   projetos: 'TB_Projetos',
+  historicoProjetos: 'TB_Projetos_Historico',
   raias: 'TB_Raias',
   atividades: 'TB_Atividades',
+  historicoAtividades: 'TB_Atividades_Historico',
 } as const;
 
 const RAIAS_PADRAO_PROJETO: Record<RaiaPadraoProjeto, string> = {
@@ -99,11 +128,25 @@ function mapearProjeto(linha: ProjetoBanco): Projeto {
     id: linha.id,
     nome: linha.nome,
     descricao: linha.descricao,
-    cor: linha.cor,
     principal: Boolean(linha.principal),
     status: linha.status,
+    dataInicial: linha.data_inicial,
+    dataFinal: linha.data_final,
     criadoEm: linha.criado_em,
     atualizadoEm: linha.atualizado_em,
+    inativadoEm: linha.inativado_em,
+    concluidoEm: linha.concluido_em,
+    reativadoEm: linha.reativado_em,
+  };
+}
+
+function mapearHistoricoProjeto(linha: HistoricoProjetoBanco): HistoricoProjeto {
+  return {
+    id: linha.id,
+    projetoId: linha.projeto_id,
+    tipo: linha.tipo,
+    descricao: linha.descricao,
+    criadoEm: linha.criado_em,
   };
 }
 
@@ -143,6 +186,19 @@ function mapearAtividade(linha: AtividadeBanco): Atividade {
   };
 }
 
+function mapearHistoricoAtividade(linha: HistoricoAtividadeBanco): HistoricoAtividade {
+  return {
+    id: linha.id,
+    atividadeId: linha.atividade_id,
+    projetoId: linha.projeto_id,
+    tipo: linha.tipo,
+    descricao: linha.descricao,
+    origem: linha.origem,
+    destino: linha.destino,
+    criadoEm: linha.criado_em,
+  };
+}
+
 function validarObrigatorio(valor: unknown, campo: string): void {
   if (!valor || String(valor).trim() === '') {
     throw new ApiErro(`Campo obrigatório: ${campo}`);
@@ -178,6 +234,18 @@ function validarTipoAtividade(valor: unknown, campo: string): Atividade['tipo'] 
   return tipo;
 }
 
+function validarStatusProjeto(valor: unknown, campo: string): Projeto['status'] {
+  const status = String(valor ?? '')
+    .trim()
+    .toUpperCase() as Projeto['status'];
+
+  if (status !== 'ATIVO' && status !== 'INATIVO' && status !== 'CONCLUIDO') {
+    throw new ApiErro(`Campo deve ser um status de projeto válido: ${campo}`, 400);
+  }
+
+  return status;
+}
+
 function validarRaiasPadrao(valor: unknown): RaiaPadraoProjeto[] {
   if (!Array.isArray(valor) || valor.length === 0) {
     throw new ApiErro('Selecione ao menos uma raia padrão para o projeto.', 400);
@@ -205,6 +273,40 @@ async function buscarRaiaPorId(raiaId: string): Promise<RaiaBanco> {
   }
 
   return raia;
+}
+
+async function buscarProjetoPorId(projetoId: string): Promise<ProjetoBanco> {
+  const projeto = await obter<ProjetoBanco>(`SELECT * FROM ${TABELAS.projetos} WHERE id = ?`, [projetoId]);
+
+  if (!projeto) {
+    throw new ApiErro('Projeto nao encontrado.', 404);
+  }
+
+  return projeto;
+}
+
+async function registrarHistoricoProjeto(projetoId: string, tipo: HistoricoProjeto['tipo'], descricao: string, criadoEm = agoraIso()): Promise<void> {
+  await executar(
+    `INSERT INTO ${TABELAS.historicoProjetos} (id, projeto_id, tipo, descricao, criado_em)
+     VALUES (?, ?, ?, ?, ?)`,
+    [randomUUID(), projetoId, tipo, descricao, criadoEm],
+  );
+}
+
+async function registrarHistoricoAtividade(
+  atividadeId: string,
+  projetoId: string,
+  tipo: HistoricoAtividade['tipo'],
+  descricao: string,
+  origem: string | null,
+  destino: string | null,
+  criadoEm = agoraIso(),
+): Promise<void> {
+  await executar(
+    `INSERT INTO ${TABELAS.historicoAtividades} (id, atividade_id, projeto_id, tipo, descricao, origem, destino, criado_em)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [randomUUID(), atividadeId, projetoId, tipo, descricao, origem, destino, criadoEm],
+  );
 }
 
 async function gerarCodigoReferencia(tipo: Atividade['tipo']): Promise<string> {
@@ -239,6 +341,26 @@ function statusPorRaia(nomeRaia: string, statusAtual: Atividade['status']): Ativ
 
 function dataConclusaoPorRaia(nomeRaia: string, dataAtual: string | null): string | null {
   return normalizarNomeRaia(nomeRaia) === 'concluidas' ? dataAtual ?? agoraIso() : null;
+}
+
+function validarTransicaoStatusProjeto(statusAtual: Projeto['status'], novoStatus: Projeto['status']): void {
+  if (statusAtual === novoStatus) {
+    return;
+  }
+
+  if (statusAtual === 'CONCLUIDO') {
+    throw new ApiErro('Projetos concluídos não podem ser reativados ou inativados novamente.', 400);
+  }
+
+  if (statusAtual === 'ATIVO' && (novoStatus === 'INATIVO' || novoStatus === 'CONCLUIDO')) {
+    return;
+  }
+
+  if (statusAtual === 'INATIVO' && novoStatus === 'ATIVO') {
+    return;
+  }
+
+  throw new ApiErro('Transição de status do projeto inválida.', 400);
 }
 
 async function validarAtividadePai(
@@ -320,11 +442,23 @@ roteador.get(
   '/projetos/:id',
   tratarAssincrono(async (req, res) => {
     const projetoId = validarUuid(req.params.id, 'id');
-    const projeto = await obter<ProjetoBanco>(`SELECT * FROM ${TABELAS.projetos} WHERE id = ?`, [projetoId]);
-    if (!projeto) {
-      throw new ApiErro('Projeto nao encontrado.', 404);
-    }
-    res.json(mapearProjeto(projeto));
+    const projetoAtualizado = await buscarProjetoPorId(projetoId);
+    res.json(mapearProjeto(projetoAtualizado));
+  }),
+);
+
+roteador.get(
+  '/projetos/:id/historico',
+  tratarAssincrono(async (req, res) => {
+    const projetoId = validarUuid(req.params.id, 'id');
+    await buscarProjetoPorId(projetoId);
+
+    const historico = await listar<HistoricoProjetoBanco>(
+      `SELECT * FROM ${TABELAS.historicoProjetos} WHERE projeto_id = ? ORDER BY criado_em DESC`,
+      [projetoId],
+    );
+
+    res.json(historico.map(mapearHistoricoProjeto));
   }),
 );
 
@@ -341,9 +475,10 @@ roteador.post(
 
     await transacao(async () => {
       await executar(
-        `INSERT INTO ${TABELAS.projetos} (id, nome, descricao, cor, principal, status, criado_em, atualizado_em)
-         VALUES (?, ?, ?, ?, 0, 'ATIVO', ?, ?)`,
-        [id, String(dados.nome).trim(), String(dados.descricao).trim(), dados.cor ?? null, agora, agora],
+        `INSERT INTO ${TABELAS.projetos} (
+          id, nome, descricao, cor, principal, status, data_inicial, data_final, inativado_em, concluido_em, reativado_em, criado_em, atualizado_em
+        ) VALUES (?, ?, ?, NULL, 0, 'ATIVO', ?, ?, NULL, NULL, NULL, ?, ?)`,
+        [id, String(dados.nome).trim(), String(dados.descricao).trim(), dados.dataInicial ?? null, dados.dataFinal ?? null, agora, agora],
       );
 
       for (let indice = 0; indice < raiasPadrao.length; indice += 1) {
@@ -353,10 +488,12 @@ roteador.post(
           [randomUUID(), id, RAIAS_PADRAO_PROJETO[raiasPadrao[indice]], indice + 1, agora, agora],
         );
       }
+
+      await registrarHistoricoProjeto(id, 'CRIADO', 'Projeto criado.', agora);
     });
 
-    const projeto = await obter<ProjetoBanco>(`SELECT * FROM ${TABELAS.projetos} WHERE id = ?`, [id]);
-    res.status(201).json(mapearProjeto(projeto as ProjetoBanco));
+    const projeto = await buscarProjetoPorId(id);
+    res.status(201).json(mapearProjeto(projeto));
   }),
 );
 
@@ -364,26 +501,26 @@ roteador.put(
   '/projetos/:id',
   tratarAssincrono(async (req, res) => {
     const projetoId = validarUuid(req.params.id, 'id');
-    const projetoExistente = await obter<ProjetoBanco>(`SELECT * FROM ${TABELAS.projetos} WHERE id = ?`, [projetoId]);
-    if (!projetoExistente) {
-      throw new ApiErro('Projeto nao encontrado.', 404);
-    }
+    const projetoExistente = await buscarProjetoPorId(projetoId);
 
     const dados = req.body as AtualizarProjetoPayload;
     const nome = String(dados.nome ?? projetoExistente.nome).trim();
     const descricao = String(dados.descricao ?? projetoExistente.descricao).trim();
-    const cor = dados.cor ?? projetoExistente.cor;
+    const agora = agoraIso();
 
-    await executar(`UPDATE ${TABELAS.projetos} SET nome = ?, descricao = ?, cor = ?, atualizado_em = ? WHERE id = ?`, [
+    await executar(`UPDATE ${TABELAS.projetos} SET nome = ?, descricao = ?, data_inicial = ?, data_final = ?, atualizado_em = ? WHERE id = ?`, [
       nome,
       descricao,
-      cor,
-      agoraIso(),
+      dados.dataInicial ?? projetoExistente.data_inicial,
+      dados.dataFinal ?? projetoExistente.data_final,
+      agora,
       projetoId,
     ]);
 
-    const atualizado = await obter<ProjetoBanco>(`SELECT * FROM ${TABELAS.projetos} WHERE id = ?`, [projetoId]);
-    res.json(mapearProjeto(atualizado as ProjetoBanco));
+    await registrarHistoricoProjeto(projetoId, 'ATUALIZADO', 'Dados principais do projeto atualizados.', agora);
+
+    const atualizado = await buscarProjetoPorId(projetoId);
+    res.json(mapearProjeto(atualizado));
   }),
 );
 
@@ -391,41 +528,75 @@ roteador.patch(
   '/projetos/:id/principal',
   tratarAssincrono(async (req, res) => {
     const projetoId = validarUuid(req.params.id, 'id');
-    const projetoExistente = await obter<ProjetoBanco>(`SELECT * FROM ${TABELAS.projetos} WHERE id = ?`, [projetoId]);
-    if (!projetoExistente) {
-      throw new ApiErro('Projeto nao encontrado.', 404);
+    const projetoAtual = await buscarProjetoPorId(projetoId);
+
+    if (projetoAtual.status !== 'ATIVO') {
+      throw new ApiErro('Somente projetos ativos podem ser definidos como principal.', 400);
     }
+
+    const agora = agoraIso();
 
     await transacao(async () => {
       await executar(`UPDATE ${TABELAS.projetos} SET principal = 0`);
-      await executar(`UPDATE ${TABELAS.projetos} SET principal = 1, atualizado_em = ? WHERE id = ?`, [agoraIso(), projetoId]);
+      await executar(`UPDATE ${TABELAS.projetos} SET principal = 1, atualizado_em = ? WHERE id = ?`, [agora, projetoId]);
+      await registrarHistoricoProjeto(projetoId, 'PRINCIPAL_DEFINIDO', 'Projeto definido como principal.', agora);
     });
 
-    const projeto = await obter<ProjetoBanco>(`SELECT * FROM ${TABELAS.projetos} WHERE id = ?`, [projetoId]);
-    res.json(mapearProjeto(projeto as ProjetoBanco));
+    const projetoAtualizado = await buscarProjetoPorId(projetoId);
+    res.json(mapearProjeto(projetoAtualizado));
   }),
 );
 
-roteador.delete(
-  '/projetos/:id',
+roteador.patch(
+  '/projetos/:id/status',
   tratarAssincrono(async (req, res) => {
     const projetoId = validarUuid(req.params.id, 'id');
-    const projeto = await obter<ProjetoBanco>(`SELECT * FROM ${TABELAS.projetos} WHERE id = ?`, [projetoId]);
-    if (!projeto) {
-      throw new ApiErro('Projeto nao encontrado.', 404);
+    const projeto = await buscarProjetoPorId(projetoId);
+    const dados = req.body as AtualizarStatusProjetoPayload;
+    const novoStatus = validarStatusProjeto(dados.status, 'status');
+
+    validarTransicaoStatusProjeto(projeto.status, novoStatus);
+
+    if (novoStatus === projeto.status) {
+      res.json(mapearProjeto(projeto));
+      return;
     }
 
-    await executar(`DELETE FROM ${TABELAS.projetos} WHERE id = ?`, [projetoId]);
+    const agora = agoraIso();
+    const descricaoHistorico =
+      novoStatus === 'INATIVO'
+        ? 'Projeto inativado.'
+        : novoStatus === 'CONCLUIDO'
+          ? 'Projeto concluído.'
+          : 'Projeto reativado.';
 
-    const principalAtual = await obter<IdApenas>(`SELECT id FROM ${TABELAS.projetos} WHERE principal = 1 LIMIT 1`);
-    if (!principalAtual) {
-      const primeiroProjeto = await obter<IdApenas>(`SELECT id FROM ${TABELAS.projetos} ORDER BY atualizado_em DESC LIMIT 1`);
-      if (primeiroProjeto) {
-        await executar(`UPDATE ${TABELAS.projetos} SET principal = 1 WHERE id = ?`, [primeiroProjeto.id]);
-      }
-    }
+    await executar(
+      `UPDATE ${TABELAS.projetos}
+       SET status = ?,
+           inativado_em = ?,
+           concluido_em = ?,
+           reativado_em = ?,
+           atualizado_em = ?
+       WHERE id = ?`,
+      [
+        novoStatus,
+        novoStatus === 'INATIVO' ? agora : projeto.inativado_em,
+        novoStatus === 'CONCLUIDO' ? agora : projeto.concluido_em,
+        novoStatus === 'ATIVO' ? agora : projeto.reativado_em,
+        agora,
+        projetoId,
+      ],
+    );
 
-    res.status(204).send();
+    await registrarHistoricoProjeto(
+      projetoId,
+      novoStatus === 'INATIVO' ? 'INATIVADO' : novoStatus === 'CONCLUIDO' ? 'CONCLUIDO' : 'REATIVADO',
+      descricaoHistorico,
+      agora,
+    );
+
+    const atualizado = await buscarProjetoPorId(projetoId);
+    res.json(mapearProjeto(atualizado));
   }),
 );
 
@@ -498,6 +669,24 @@ roteador.get(
   }),
 );
 
+roteador.get(
+  '/atividades/:id/historico',
+  tratarAssincrono(async (req, res) => {
+    const atividadeId = validarUuid(req.params.id, 'id');
+    const atividade = await obter<AtividadeBanco>(`SELECT * FROM ${TABELAS.atividades} WHERE id = ?`, [atividadeId]);
+    if (!atividade) {
+      throw new ApiErro('Atividade nao encontrada.', 404);
+    }
+
+    const historico = await listar<HistoricoAtividadeBanco>(
+      `SELECT * FROM ${TABELAS.historicoAtividades} WHERE atividade_id = ? ORDER BY criado_em DESC`,
+      [atividadeId],
+    );
+
+    res.json(historico.map(mapearHistoricoAtividade));
+  }),
+);
+
 roteador.post(
   '/projetos/:projetoId/atividades',
   tratarAssincrono(async (req, res) => {
@@ -558,6 +747,8 @@ roteador.post(
       ],
     );
 
+    await registrarHistoricoAtividade(id, projetoId, 'CRIADA', 'Atividade criada.', null, raiaDestino.nome, agoraIso());
+
     const atividade = await obter<AtividadeBanco>(`SELECT * FROM ${TABELAS.atividades} WHERE id = ?`, [id]);
     res.status(201).json(mapearAtividade(atividade as AtividadeBanco));
   }),
@@ -588,6 +779,11 @@ roteador.put(
     );
     const status = statusPorRaia(raiaDestino.nome, (dados.status ?? atividade.status) as Atividade['status']);
     const dataConclusao = dataConclusaoPorRaia(raiaDestino.nome, atividade.data_conclusao);
+    const houveMudancaRaia = atividade.raia_id !== novaRaiaId;
+    const nomeRaiaOrigem = houveMudancaRaia
+      ? (await buscarRaiaPorId(atividade.raia_id)).nome
+      : null;
+    const agora = agoraIso();
 
     await executar(
       `UPDATE ${TABELAS.atividades} SET
@@ -620,10 +816,22 @@ roteador.put(
         JSON.stringify(dados.etiquetas ?? jsonSeguroParse(atividade.etiquetas_json, [])),
         JSON.stringify(dados.checklist ?? jsonSeguroParse(atividade.checklist_json, [])),
         JSON.stringify(dados.comentarios ?? jsonSeguroParse(atividade.comentarios_json, [])),
-        agoraIso(),
+        agora,
         atividadeId,
       ],
     );
+
+    if (houveMudancaRaia) {
+      await registrarHistoricoAtividade(
+        atividadeId,
+        atividade.projeto_id,
+        'MOVIDA_RAIA',
+        `Atividade movida de ${nomeRaiaOrigem} para ${raiaDestino.nome}.`,
+        nomeRaiaOrigem,
+        raiaDestino.nome,
+        agora,
+      );
+    }
 
     const atualizada = await obter<AtividadeBanco>(`SELECT * FROM ${TABELAS.atividades} WHERE id = ?`, [atividadeId]);
     res.json(mapearAtividade(atualizada as AtividadeBanco));

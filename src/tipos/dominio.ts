@@ -28,11 +28,34 @@ export interface Projeto {
   id: string;
   nome: string;
   descricao: string;
-  cor: string | null;
   principal: boolean;
-  status: 'ATIVO' | 'INATIVO';
+  status: 'ATIVO' | 'INATIVO' | 'CONCLUIDO';
+  dataInicial: string | null;
+  dataFinal: string | null;
   criadoEm: string;
   atualizadoEm: string;
+  inativadoEm: string | null;
+  concluidoEm: string | null;
+  reativadoEm: string | null;
+}
+
+export interface HistoricoProjeto {
+  id: string;
+  projetoId: string;
+  tipo: 'CRIADO' | 'ATUALIZADO' | 'INATIVADO' | 'REATIVADO' | 'CONCLUIDO' | 'PRINCIPAL_DEFINIDO';
+  descricao: string;
+  criadoEm: string;
+}
+
+export interface HistoricoAtividade {
+  id: string;
+  atividadeId: string;
+  projetoId: string;
+  tipo: 'CRIADA' | 'MOVIDA_RAIA';
+  descricao: string;
+  origem: string | null;
+  destino: string | null;
+  criadoEm: string;
 }
 
 export type RaiaPadraoProjeto = 'BACKLOG' | 'EM_ANDAMENTO' | 'TESTE' | 'AGUARDANDO_PUBLICACAO' | 'CONCLUIDAS';
@@ -72,11 +95,16 @@ export interface Atividade {
 export interface CriarProjetoPayload {
   nome: string;
   descricao: string;
-  cor?: string | null;
+  dataInicial?: string | null;
+  dataFinal?: string | null;
   raiasPadrao: RaiaPadraoProjeto[];
 }
 
 export interface AtualizarProjetoPayload extends Omit<CriarProjetoPayload, 'raiasPadrao'> {}
+
+export interface AtualizarStatusProjetoPayload {
+  status: Projeto['status'];
+}
 
 export interface ReordenarRaiasPayload {
   raias: Array<{ id: string }>;

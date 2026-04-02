@@ -75,6 +75,11 @@ const limiteFalhas = 5;
 const limiteFalhasDesafio = 5;
 const validadeCodigoMinutos = 10;
 
+function doisFatoresHabilitado(): boolean {
+  const valor = String(process.env.AUTH_2FA_ENABLED ?? 'false').trim().toLowerCase();
+  return ['true', '1', 'on', 'sim', 'yes'].includes(valor);
+}
+
 function criarRateLimitHandler(detail: string) {
   return (req: Request, res: Response): void => {
     responderProblema(req, res, new ApiErro(detail, 429));
@@ -280,6 +285,22 @@ roteadorAutenticacao.post('/login', limiteLogin, async (req, res, next) => {
     if (!senhaValida) {
       await incrementarTentativasFalha(usuario);
       throw new ApiErro('Credenciais invalidas.', 401);
+    }
+
+    if (!doisFatoresHabilitado()) {
+      const sessao = await transacao(async () => {
+        await resetarTentativasFalha(usuario.id);
+        return registrarNovaSessao(usuario, req);
+      });
+
+      definirCookieRefresh(res, sessao.tokenRefresh);
+
+      res.json({
+        requerSegundoFator: false,
+        tokenAcesso: sessao.tokenAcesso,
+        usuario: montarRespostaUsuario(usuario),
+      });
+      return;
     }
 
     const desafio = await criarDesafioDoisFatores(usuario, req);
