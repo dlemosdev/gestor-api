@@ -12,7 +12,7 @@ pnpm dev
 
 API: `http://localhost:3333/api`
 
-## Build de produção
+## Build de produÃ§Ã£o
 
 ```bash
 pnpm build
@@ -44,9 +44,22 @@ pnpm start
 
 ## Banco
 
-O arquivo SQLite é criado automaticamente em:
+O arquivo SQLite Ã© criado automaticamente em:
 
 - `gestor-api/dados.db`
 
-Também é aplicado seed inicial com usuários, projetos, raias e atividades.
+TambÃ©m Ã© aplicado seed inicial com usuÃ¡rios, projetos, raias e atividades.
 
+
+## Configuracao de e-mail (SMTP)
+
+Para envio do codigo de segundo fator, configure no arquivo `.env`:
+
+```bash
+SMTP_HOST=smtp.seudominio.com
+SMTP_PORT=587
+SMTP_SEGURO=false
+SMTP_USUARIO=usuario-smtp
+SMTP_SENHA=senha-smtp
+SMTP_REMETENTE=Gestor <no-reply@seu-dominio.com>
+```

@@ -180,7 +180,7 @@ export async function seedInicial(): Promise<void> {
   }
 
   const usuarios = [
-    { id: 'usuario-ana', nome: 'Ana Paula', email: 'ana.paula@empresa.com', iniciais: 'AP' },
+    { id: 'usuario-denner', nome: 'Denner Lemos', email: 'dennerlemos.dev@gmail.com', iniciais: 'DL' },
     { id: 'usuario-bruno', nome: 'Bruno Costa', email: 'bruno.costa@empresa.com', iniciais: 'BC' },
     { id: 'usuario-carla', nome: 'Carla Souza', email: 'carla.souza@empresa.com', iniciais: 'CS' },
     { id: 'usuario-diego', nome: 'Diego Lima', email: 'diego.lima@empresa.com', iniciais: 'DL' },
@@ -255,7 +255,7 @@ export async function seedInicial(): Promise<void> {
       descricao: 'Levantamento de histórias e alinhamento com arquitetura frontend.',
       prioridade: 'ALTA',
       status: 'BACKLOG',
-      responsavel: 'Ana Paula',
+      responsavel: 'Denner Lemos',
       prazo: '2026-04-04',
       etiquetas: [
         { nome: 'Arquitetura', cor: '#2563EB' },
