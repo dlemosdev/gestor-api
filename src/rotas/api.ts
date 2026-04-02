@@ -68,6 +68,7 @@ interface AtividadeBanco {
   atividade_pai_id: string | null;
   titulo: string;
   descricao: string;
+  descricao_detalhada: string | null;
   prioridade: Atividade['prioridade'];
   status: Atividade['status'];
   responsavel: string;
@@ -172,6 +173,7 @@ function mapearAtividade(linha: AtividadeBanco): Atividade {
     atividadePaiId: linha.atividade_pai_id,
     titulo: linha.titulo,
     descricao: linha.descricao,
+    descricaoDetalhada: linha.descricao_detalhada,
     prioridade: linha.prioridade,
     status: linha.status,
     responsavel: linha.responsavel,
@@ -270,6 +272,22 @@ async function buscarRaiaPorId(raiaId: string): Promise<RaiaBanco> {
 
   if (!raia) {
     throw new ApiErro('Raia nao encontrada.', 404);
+  }
+
+  return raia;
+}
+
+async function buscarRaiaBacklogProjeto(projetoId: string): Promise<RaiaBanco> {
+  const raia = await obter<RaiaBanco>(
+    `SELECT * FROM ${TABELAS.raias}
+     WHERE projeto_id = ? AND LOWER(TRIM(nome)) IN ('backlog')
+     ORDER BY ordem
+     LIMIT 1`,
+    [projetoId],
+  );
+
+  if (!raia) {
+    throw new ApiErro('O projeto não possui uma raia Backlog configurada.', 400);
   }
 
   return raia;
@@ -692,47 +710,46 @@ roteador.post(
   tratarAssincrono(async (req, res) => {
     const projetoId = validarUuid(req.params.projetoId, 'projetoId');
     const dados = req.body as CriarAtividadePayload;
-    const raiaId = validarUuid(dados.raiaId, 'raiaId');
     const tipo = validarTipoAtividade(dados.tipo, 'tipo');
-    validarObrigatorio(dados.raiaId, 'raiaId');
     validarObrigatorio(dados.tipo, 'tipo');
     validarObrigatorio(dados.titulo, 'titulo');
     validarObrigatorio(dados.descricao, 'descricao');
     validarObrigatorio(dados.prioridade, 'prioridade');
-    validarObrigatorio(dados.status, 'status');
     validarObrigatorio(dados.responsavel, 'responsavel');
     validarObrigatorio(dados.prazo, 'prazo');
 
-    const raiaDestino = await buscarRaiaPorId(raiaId);
+    const raiaDestino = dados.raiaId ? await buscarRaiaPorId(validarUuid(dados.raiaId, 'raiaId')) : await buscarRaiaBacklogProjeto(projetoId);
     const atividadePaiId = await validarAtividadePai(
       projetoId,
       tipo,
       dados.atividadePaiId ? validarUuid(dados.atividadePaiId, 'atividadePaiId') : null,
     );
     const codigoReferencia = await gerarCodigoReferencia(tipo);
-    const status = statusPorRaia(raiaDestino.nome, dados.status);
+    const status = statusPorRaia(raiaDestino.nome, (dados.status ?? 'BACKLOG') as Atividade['status']);
     const dataConclusao = dataConclusaoPorRaia(raiaDestino.nome, null);
 
-    const linhaOrdem = await obter<ProximaOrdemLinha>(`SELECT COALESCE(MAX(ordem), 0) + 1 AS proxima_ordem FROM ${TABELAS.atividades} WHERE raia_id = ?`, [
-      raiaId,
-    ]);
+    const linhaOrdem = await obter<ProximaOrdemLinha>(
+      `SELECT COALESCE(MAX(ordem), 0) + 1 AS proxima_ordem FROM ${TABELAS.atividades} WHERE raia_id = ?`,
+      [raiaDestino.id],
+    );
 
     const id = randomUUID();
     await executar(
       `INSERT INTO ${TABELAS.atividades} (
-        id, projeto_id, raia_id, codigo_referencia, tipo, atividade_pai_id, titulo, descricao, prioridade, status,
+        id, projeto_id, raia_id, codigo_referencia, tipo, atividade_pai_id, titulo, descricao, descricao_detalhada, prioridade, status,
         responsavel, prazo, data_conclusao, etiquetas_json, checklist_json, comentarios_json,
         ordem, criado_em, atualizado_em
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         projetoId,
-        raiaId,
+        raiaDestino.id,
         codigoReferencia,
         tipo,
         atividadePaiId,
         String(dados.titulo).trim(),
         String(dados.descricao).trim(),
+        dados.descricaoDetalhada ? String(dados.descricaoDetalhada).trim() : null,
         dados.prioridade,
         status,
         dados.responsavel,
@@ -792,6 +809,7 @@ roteador.put(
         atividade_pai_id = ?,
         titulo = ?,
         descricao = ?,
+        descricao_detalhada = ?,
         prioridade = ?,
         status = ?,
         responsavel = ?,
@@ -808,6 +826,7 @@ roteador.put(
         atividadePaiId,
         String(dados.titulo ?? atividade.titulo).trim(),
         String(dados.descricao ?? atividade.descricao).trim(),
+        dados.descricaoDetalhada === undefined ? atividade.descricao_detalhada : dados.descricaoDetalhada ? String(dados.descricaoDetalhada).trim() : null,
         dados.prioridade ?? atividade.prioridade,
         status,
         dados.responsavel ?? atividade.responsavel,

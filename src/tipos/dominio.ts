@@ -79,6 +79,7 @@ export interface Atividade {
   atividadePaiId: string | null;
   titulo: string;
   descricao: string;
+  descricaoDetalhada: string | null;
   prioridade: 'BAIXA' | 'MEDIA' | 'ALTA' | 'CRITICA';
   status: 'BACKLOG' | 'EM_ANDAMENTO' | 'BLOQUEADA' | 'CONCLUIDA';
   responsavel: string;
@@ -111,13 +112,14 @@ export interface ReordenarRaiasPayload {
 }
 
 export interface CriarAtividadePayload {
-  raiaId: string;
+  raiaId?: string;
   tipo: Atividade['tipo'];
   atividadePaiId?: string | null;
   titulo: string;
   descricao: string;
+  descricaoDetalhada?: string | null;
   prioridade: Atividade['prioridade'];
-  status: Atividade['status'];
+  status?: Atividade['status'];
   responsavel: string;
   prazo: string;
   etiquetas?: EtiquetaAtividade[];

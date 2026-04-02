@@ -34,6 +34,7 @@ interface DadosIniciaisAtividade {
   atividadePaiId: string | null;
   titulo: string;
   descricao: string;
+  descricaoDetalhada: string | null;
   prioridade: 'BAIXA' | 'MEDIA' | 'ALTA' | 'CRITICA';
   status: 'BACKLOG' | 'EM_ANDAMENTO' | 'BLOQUEADA' | 'CONCLUIDA';
   responsavel: string;
@@ -168,6 +169,7 @@ export async function criarTabelas(): Promise<void> {
       atividade_pai_id TEXT,
       titulo TEXT NOT NULL,
       descricao TEXT NOT NULL,
+      descricao_detalhada TEXT,
       prioridade TEXT NOT NULL,
       status TEXT NOT NULL,
       responsavel TEXT NOT NULL,
@@ -298,6 +300,10 @@ async function garantirColunasAtividades(): Promise<void> {
 
   if (!colunas.includes('data_conclusao')) {
     await executar(`ALTER TABLE ${TABELAS.atividades} ADD COLUMN data_conclusao TEXT`);
+  }
+
+  if (!colunas.includes('descricao_detalhada')) {
+    await executar(`ALTER TABLE ${TABELAS.atividades} ADD COLUMN descricao_detalhada TEXT`);
   }
 
   await executar(`CREATE UNIQUE INDEX IF NOT EXISTS IDX_TB_Atividades_Codigo_Referencia ON ${TABELAS.atividades}(codigo_referencia)`);
