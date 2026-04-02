@@ -35,6 +35,8 @@ export interface Projeto {
   atualizadoEm: string;
 }
 
+export type RaiaPadraoProjeto = 'BACKLOG' | 'EM_ANDAMENTO' | 'TESTE' | 'AGUARDANDO_PUBLICACAO' | 'CONCLUIDAS';
+
 export interface Raia {
   id: string;
   projetoId: string;
@@ -71,19 +73,10 @@ export interface CriarProjetoPayload {
   nome: string;
   descricao: string;
   cor?: string | null;
+  raiasPadrao: RaiaPadraoProjeto[];
 }
 
-export interface AtualizarProjetoPayload extends CriarProjetoPayload {}
-
-export interface CriarRaiaPayload {
-  nome: string;
-  cor?: string | null;
-}
-
-export interface AtualizarRaiaPayload {
-  nome?: string;
-  cor?: string | null;
-}
+export interface AtualizarProjetoPayload extends Omit<CriarProjetoPayload, 'raiasPadrao'> {}
 
 export interface ReordenarRaiasPayload {
   raias: Array<{ id: string }>;

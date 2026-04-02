@@ -9,13 +9,12 @@ import {
   AtualizarAtividadePayload,
   AtualizarChecklistPayload,
   AtualizarProjetoPayload,
-  AtualizarRaiaPayload,
   Comentario,
   CriarAtividadePayload,
   CriarProjetoPayload,
-  CriarRaiaPayload,
   Projeto,
   Raia,
+  RaiaPadraoProjeto,
   ReordenarAtividadesPayload,
   ReordenarRaiasPayload,
   Usuario,
@@ -84,6 +83,14 @@ const TABELAS = {
   raias: 'TB_Raias',
   atividades: 'TB_Atividades',
 } as const;
+
+const RAIAS_PADRAO_PROJETO: Record<RaiaPadraoProjeto, string> = {
+  BACKLOG: 'Backlog',
+  EM_ANDAMENTO: 'Em andamento',
+  TESTE: 'Teste',
+  AGUARDANDO_PUBLICACAO: 'Aguardando publicação',
+  CONCLUIDAS: 'Concluídas',
+};
 
 export const roteador = express.Router();
 
@@ -169,6 +176,21 @@ function validarTipoAtividade(valor: unknown, campo: string): Atividade['tipo'] 
   }
 
   return tipo;
+}
+
+function validarRaiasPadrao(valor: unknown): RaiaPadraoProjeto[] {
+  if (!Array.isArray(valor) || valor.length === 0) {
+    throw new ApiErro('Selecione ao menos uma raia padrão para o projeto.', 400);
+  }
+
+  const raias = valor.map((item) => String(item ?? '').trim().toUpperCase()) as RaiaPadraoProjeto[];
+  const permitidas = new Set<RaiaPadraoProjeto>(Object.keys(RAIAS_PADRAO_PROJETO) as RaiaPadraoProjeto[]);
+
+  if (raias.some((raia) => !permitidas.has(raia))) {
+    throw new ApiErro('A lista de raias padrão do projeto possui valores inválidos.', 400);
+  }
+
+  return [...new Set(raias)];
 }
 
 function formatarCodigoReferencia(prefixo: 'HU' | 'BG' | 'HF', sequencia: number): string {
@@ -312,15 +334,26 @@ roteador.post(
     const dados = req.body as CriarProjetoPayload;
     validarObrigatorio(dados.nome, 'nome');
     validarObrigatorio(dados.descricao, 'descricao');
+    const raiasPadrao = validarRaiasPadrao(dados.raiasPadrao);
 
     const agora = agoraIso();
     const id = randomUUID();
 
-    await executar(
-      `INSERT INTO ${TABELAS.projetos} (id, nome, descricao, cor, principal, status, criado_em, atualizado_em)
-       VALUES (?, ?, ?, ?, 0, 'ATIVO', ?, ?)`,
-      [id, String(dados.nome).trim(), String(dados.descricao).trim(), dados.cor ?? null, agora, agora],
-    );
+    await transacao(async () => {
+      await executar(
+        `INSERT INTO ${TABELAS.projetos} (id, nome, descricao, cor, principal, status, criado_em, atualizado_em)
+         VALUES (?, ?, ?, ?, 0, 'ATIVO', ?, ?)`,
+        [id, String(dados.nome).trim(), String(dados.descricao).trim(), dados.cor ?? null, agora, agora],
+      );
+
+      for (let indice = 0; indice < raiasPadrao.length; indice += 1) {
+        await executar(
+          `INSERT INTO ${TABELAS.raias} (id, projeto_id, nome, ordem, cor, criado_em, atualizado_em)
+           VALUES (?, ?, ?, ?, NULL, ?, ?)`,
+          [randomUUID(), id, RAIAS_PADRAO_PROJETO[raiasPadrao[indice]], indice + 1, agora, agora],
+        );
+      }
+    });
 
     const projeto = await obter<ProjetoBanco>(`SELECT * FROM ${TABELAS.projetos} WHERE id = ?`, [id]);
     res.status(201).json(mapearProjeto(projeto as ProjetoBanco));
@@ -413,52 +446,6 @@ roteador.get(
   }),
 );
 
-roteador.post(
-  '/projetos/:projetoId/raias',
-  tratarAssincrono(async (req, res) => {
-    const projetoId = validarUuid(req.params.projetoId, 'projetoId');
-    const dados = req.body as CriarRaiaPayload;
-    validarObrigatorio(dados.nome, 'nome');
-
-    const linhaOrdem = await obter<ProximaOrdemLinha>(
-      `SELECT COALESCE(MAX(ordem), 0) + 1 AS proxima_ordem FROM ${TABELAS.raias} WHERE projeto_id = ?`,
-      [projetoId],
-    );
-
-    const id = randomUUID();
-    await executar(
-      `INSERT INTO ${TABELAS.raias} (id, projeto_id, nome, ordem, cor, criado_em, atualizado_em)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [id, projetoId, String(dados.nome).trim(), linhaOrdem?.proxima_ordem ?? 1, dados.cor ?? null, agoraIso(), agoraIso()],
-    );
-
-    const raia = await obter<RaiaBanco>(`SELECT * FROM ${TABELAS.raias} WHERE id = ?`, [id]);
-    res.status(201).json(mapearRaia(raia as RaiaBanco));
-  }),
-);
-
-roteador.put(
-  '/raias/:id',
-  tratarAssincrono(async (req, res) => {
-    const raiaId = validarUuid(req.params.id, 'id');
-    const raia = await obter<RaiaBanco>(`SELECT * FROM ${TABELAS.raias} WHERE id = ?`, [raiaId]);
-    if (!raia) {
-      throw new ApiErro('Raia nao encontrada.', 404);
-    }
-
-    const dados = req.body as AtualizarRaiaPayload;
-    await executar(`UPDATE ${TABELAS.raias} SET nome = ?, cor = ?, atualizado_em = ? WHERE id = ?`, [
-      String(dados.nome ?? raia.nome).trim(),
-      dados.cor ?? raia.cor,
-      agoraIso(),
-      raiaId,
-    ]);
-
-    const atualizada = await obter<RaiaBanco>(`SELECT * FROM ${TABELAS.raias} WHERE id = ?`, [raiaId]);
-    res.json(mapearRaia(atualizada as RaiaBanco));
-  }),
-);
-
 roteador.put(
   '/projetos/:projetoId/raias/reordenar',
   tratarAssincrono(async (req, res) => {
@@ -479,26 +466,6 @@ roteador.put(
 
     const resultado = await listar<RaiaBanco>(`SELECT * FROM ${TABELAS.raias} WHERE projeto_id = ? ORDER BY ordem`, [projetoId]);
     res.json(resultado.map(mapearRaia));
-  }),
-);
-
-roteador.delete(
-  '/raias/:id',
-  tratarAssincrono(async (req, res) => {
-    const raiaId = validarUuid(req.params.id, 'id');
-    const raia = await obter<RaiaBanco>(`SELECT * FROM ${TABELAS.raias} WHERE id = ?`, [raiaId]);
-    if (!raia) {
-      throw new ApiErro('Raia nao encontrada.', 404);
-    }
-
-    await executar(`DELETE FROM ${TABELAS.raias} WHERE id = ?`, [raiaId]);
-
-    const raiasProjeto = await listar<IdApenas>(`SELECT id FROM ${TABELAS.raias} WHERE projeto_id = ? ORDER BY ordem`, [raia.projeto_id]);
-    for (let indice = 0; indice < raiasProjeto.length; indice += 1) {
-      await executar(`UPDATE ${TABELAS.raias} SET ordem = ?, atualizado_em = ? WHERE id = ?`, [indice + 1, agoraIso(), raiasProjeto[indice].id]);
-    }
-
-    res.status(204).send();
   }),
 );
 
