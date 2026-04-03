@@ -718,7 +718,8 @@ roteador.post(
     validarObrigatorio(dados.responsavel, 'responsavel');
     validarObrigatorio(dados.prazo, 'prazo');
 
-    const raiaDestino = dados.raiaId ? await buscarRaiaPorId(validarUuid(dados.raiaId, 'raiaId')) : await buscarRaiaBacklogProjeto(projetoId);
+    const raiaIdInformada = String(dados.raiaId ?? '').trim();
+    const raiaDestino = raiaIdInformada ? await buscarRaiaPorId(validarUuid(raiaIdInformada, 'raiaId')) : await buscarRaiaBacklogProjeto(projetoId);
     const atividadePaiId = await validarAtividadePai(
       projetoId,
       tipo,
@@ -781,7 +782,8 @@ roteador.put(
     }
 
     const dados = req.body as AtualizarAtividadePayload;
-    const novaRaiaId = dados.raiaId ? validarUuid(dados.raiaId, 'raiaId') : atividade.raia_id;
+    const raiaIdInformada = String(dados.raiaId ?? '').trim();
+    const novaRaiaId = raiaIdInformada ? validarUuid(raiaIdInformada, 'raiaId') : atividade.raia_id;
     const tipo = dados.tipo ? validarTipoAtividade(dados.tipo, 'tipo') : atividade.tipo;
     const raiaDestino = await buscarRaiaPorId(novaRaiaId);
     const atividadePaiId = await validarAtividadePai(

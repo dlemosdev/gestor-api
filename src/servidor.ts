@@ -62,6 +62,22 @@ app.use((erro: Error, req: Request, res: Response, _next: NextFunction) => {
     return;
   }
 
+  const erroJsonInvalido =
+    erro instanceof SyntaxError &&
+    'type' in erro &&
+    (erro as SyntaxError & { type?: string }).type === 'entity.parse.failed';
+
+  if (erroJsonInvalido) {
+    const problemaJson = new ApiErro('JSON inválido na requisição.', 400);
+    logger.warn({
+      msg: 'json invalido na requisicao',
+      ...contextoErro,
+      detalhe: erro.message,
+    });
+    responderProblema(req, res, problemaJson);
+    return;
+  }
+
   logger.error({
     msg: 'erro nao tratado',
     ...contextoErro,

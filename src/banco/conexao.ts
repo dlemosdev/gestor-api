@@ -3,6 +3,7 @@ import path from 'node:path';
 
 const caminhoBanco = path.resolve(__dirname, '..', '..', 'dados.db');
 const conexao = new sqlite3.Database(caminhoBanco);
+let filaTransacoes: Promise<void> = Promise.resolve();
 
 export interface ResultadoExecucao {
   ultimoId: number;
@@ -52,15 +53,28 @@ export function listar<T>(comandoSql: string, parametros: unknown[] = []): Promi
 }
 
 export async function transacao<T>(executarBloco: () => Promise<T>): Promise<T> {
-  await executar('BEGIN');
+  const transacaoAnterior = filaTransacoes;
+  let liberarFila = () => {};
+
+  filaTransacoes = new Promise<void>((resolver) => {
+    liberarFila = resolver;
+  });
+
+  await transacaoAnterior;
 
   try {
-    const resultado = await executarBloco();
-    await executar('COMMIT');
-    return resultado;
-  } catch (erro) {
-    await executar('ROLLBACK');
-    throw erro;
+    await executar('BEGIN');
+
+    try {
+      const resultado = await executarBloco();
+      await executar('COMMIT');
+      return resultado;
+    } catch (erro) {
+      await executar('ROLLBACK');
+      throw erro;
+    }
+  } finally {
+    liberarFila();
   }
 }
 
