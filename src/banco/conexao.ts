@@ -78,4 +78,26 @@ export async function transacao<T>(executarBloco: () => Promise<T>): Promise<T> 
   }
 }
 
+export function fecharConexao(): Promise<void> {
+  return new Promise((resolver, rejeitar) => {
+    conexao.close((erro) => {
+      if (erro) {
+        rejeitar(erro);
+        return;
+      }
+
+      resolver();
+    });
+  });
+}
+
+export async function verificarSaudeBanco(): Promise<boolean> {
+  try {
+    const resultado = await obter<{ ok: number }>('SELECT 1 AS ok');
+    return resultado?.ok === 1;
+  } catch {
+    return false;
+  }
+}
+
 export { conexao };

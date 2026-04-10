@@ -1,4 +1,4 @@
-﻿import { Request, Response } from 'express';
+import { Request, Response } from 'express';
 
 export interface ProblemaDetalhes {
   type: string;
@@ -9,7 +9,7 @@ export interface ProblemaDetalhes {
   [chave: string]: unknown;
 }
 
-export class ApiErro extends Error {
+export class AppError extends Error {
   readonly statusCode: number;
   readonly type: string;
   readonly title?: string;
@@ -32,6 +32,46 @@ export class ApiErro extends Error {
   }
 }
 
+export class ValidationError extends AppError {
+  constructor(detail: string, extras?: Record<string, unknown> | Array<{ campo?: string; mensagem: string }>) {
+    super(
+      detail,
+      400,
+      Array.isArray(extras)
+        ? { extras: { errors: extras } }
+        : extras
+          ? { extras }
+          : undefined,
+    );
+  }
+}
+
+export class UnauthorizedError extends AppError {
+  constructor(detail = 'Nao autorizado.') {
+    super(detail, 401);
+  }
+}
+
+export class ForbiddenError extends AppError {
+  constructor(detail = 'Acesso negado.') {
+    super(detail, 403);
+  }
+}
+
+export class NotFoundError extends AppError {
+  constructor(detail = 'Recurso nao encontrado.') {
+    super(detail, 404);
+  }
+}
+
+export class ConflictError extends AppError {
+  constructor(detail: string) {
+    super(detail, 409);
+  }
+}
+
+export class ApiErro extends AppError {}
+
 export function tituloPadraoProblema(statusCode: number): string {
   const titulos: Record<number, string> = {
     400: 'Bad Request',
@@ -48,7 +88,7 @@ export function tituloPadraoProblema(statusCode: number): string {
   return titulos[statusCode] ?? 'Error';
 }
 
-export function construirProblema(req: Request, erro: ApiErro): ProblemaDetalhes {
+export function construirProblema(req: Request, erro: AppError): ProblemaDetalhes {
   const problema: ProblemaDetalhes = {
     type: erro.type,
     title: erro.title ?? tituloPadraoProblema(erro.statusCode),
@@ -64,6 +104,6 @@ export function construirProblema(req: Request, erro: ApiErro): ProblemaDetalhes
   return problema;
 }
 
-export function responderProblema(req: Request, res: Response, erro: ApiErro): void {
+export function responderProblema(req: Request, res: Response, erro: AppError): void {
   res.status(erro.statusCode).type('application/problem+json').json(construirProblema(req, erro));
 }

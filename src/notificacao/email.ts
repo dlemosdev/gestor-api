@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 
+import { appConfig } from "../config/env";
 import { ApiErro } from "../tipos/erros";
 import { logger } from "../infra/logger";
 
@@ -13,28 +14,17 @@ interface ConfiguracaoSmtp {
   senha: string;
 }
 
-function booleanoAmbiente(
-  valor: string | undefined,
-  fallback: boolean,
-): boolean {
-  if (!valor) {
-    return fallback;
-  }
-
-  return ["1", "true", "sim", "yes"].includes(valor.toLowerCase());
-}
-
 function obterConfiguracaoSmtp(): ConfiguracaoSmtp {
-  const host = process.env.SMTP_HOST;
-  const porta = Number(process.env.SMTP_PORT ?? "587");
-  const usuario = process.env.SMTP_USUARIO;
-  const senha = process.env.SMTP_SENHA;
+  const host = appConfig.smtp.host;
+  const porta = appConfig.smtp.porta;
+  const usuario = appConfig.smtp.usuario;
+  const senha = appConfig.smtp.senha;
 
   if (!host || !porta || !usuario || !senha) {
     throw new ApiErro("Servico de e-mail nao configurado.", 500);
   }
 
-  const seguro = booleanoAmbiente(process.env.SMTP_SEGURO, porta === 465);
+  const seguro = appConfig.smtp.seguro;
 
   return {
     host,
@@ -71,7 +61,7 @@ export async function enviarCodigoSegundoFator(
   codigo: string,
   validadeMinutos: number,
 ): Promise<void> {
-  const remetente = process.env.SMTP_REMETENTE;
+  const remetente = appConfig.smtp.remetente;
 
   if (!remetente) {
     throw new ApiErro("Servico de e-mail nao configurado.", 500);

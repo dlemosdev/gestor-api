@@ -3,6 +3,7 @@
 import bcrypt from 'bcryptjs';
 
 import { executar, listar, obter } from './conexao';
+import { appConfig } from '../config/env';
 import { agoraIso } from '../util/serializacao';
 
 interface DadosIniciaisProjeto {
@@ -246,7 +247,7 @@ export async function criarTabelas(): Promise<void> {
 
 async function garantirUsuariosAuth(): Promise<void> {
   const agora = agoraIso();
-  const senhaPadraoInicial = process.env.SENHA_PADRAO_INICIAL ?? 'Gestor@123';
+  const senhaPadraoInicial = appConfig.senhaPadraoInicial;
   const hashSenhaPadrao = await bcrypt.hash(senhaPadraoInicial, 12);
   const usuarios = await listar<{ id: string }>(`SELECT id FROM ${TABELAS.usuarios}`);
 

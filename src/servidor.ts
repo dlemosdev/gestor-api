@@ -1,104 +1,61 @@
-import cookieParser from 'cookie-parser';
-import cors from 'cors';
-import express, { NextFunction, Request, Response } from 'express';
+import { Server } from 'node:http';
 
-import { autenticarRequisicao } from './autenticacao/middleware-autenticacao';
+import { criarApp } from './app';
+import { fecharConexao } from './banco/conexao';
 import { inicializarBanco } from './banco/inicializar-banco';
+import { appConfig } from './config/env';
 import { logger } from './infra/logger';
-import { middlewareLogRequisicao } from './middleware/log-requisicao';
-import { roteadorAutenticacao } from './rotas/autenticacao';
-import { roteador } from './rotas/api';
-import { ApiErro, responderProblema } from './tipos/erros';
 
-const porta = Number(process.env.PORTA_API || 3333);
-const origemFrontend = process.env.ORIGEM_FRONTEND || 'http://localhost:4200';
-
-const app = express();
-app.disable('x-powered-by');
-
-app.use(
-  cors({
-    origin: origemFrontend,
-    credentials: true,
-  }),
-);
-app.use(middlewareLogRequisicao);
-app.use(cookieParser());
-app.use(express.json({ limit: '1mb' }));
-
-app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', servico: 'gestor-api' });
-});
-
-app.use('/api/auth', roteadorAutenticacao);
-app.use('/api/auth', (req, _res, next) => {
-  next(new ApiErro('Recurso nao encontrado.', 404));
-});
-app.use('/api', autenticarRequisicao, roteador);
-
-app.use('/api', (req, _res, next) => {
-  next(new ApiErro('Recurso nao encontrado.', 404));
-});
-
-app.use((erro: Error, req: Request, res: Response, _next: NextFunction) => {
-  const contextoErro = {
-    requestId: req.requestId,
-    metodo: req.method,
-    rota: req.originalUrl,
-  };
-
-  if (erro instanceof ApiErro) {
-    const nivel = erro.statusCode >= 500 ? 'error' : 'warn';
-    logger[nivel]({
-      msg: 'erro de aplicacao',
-      ...contextoErro,
-      statusCode: erro.statusCode,
-      tipo: erro.type,
-      detalhe: erro.message,
-      extras: erro.extras,
-      stack: erro.statusCode >= 500 ? erro.stack : undefined,
-    });
-    responderProblema(req, res, erro);
-    return;
-  }
-
-  const erroJsonInvalido =
-    erro instanceof SyntaxError &&
-    'type' in erro &&
-    (erro as SyntaxError & { type?: string }).type === 'entity.parse.failed';
-
-  if (erroJsonInvalido) {
-    const problemaJson = new ApiErro('JSON inválido na requisição.', 400);
-    logger.warn({
-      msg: 'json invalido na requisicao',
-      ...contextoErro,
-      detalhe: erro.message,
-    });
-    responderProblema(req, res, problemaJson);
-    return;
-  }
-
-  logger.error({
-    msg: 'erro nao tratado',
-    ...contextoErro,
-    detalhe: erro.message,
-    stack: erro.stack,
-  });
-
-  const erroInterno = new ApiErro('Erro interno do servidor.', 500);
-  responderProblema(req, res, erroInterno);
-});
+const app = criarApp();
+let servidorHttp: Server | null = null;
+let desligando = false;
 
 async function iniciarServidor(): Promise<void> {
   await inicializarBanco();
 
-  app.listen(porta, () => {
+  servidorHttp = app.listen(appConfig.portaApi, () => {
     logger.info({
       msg: 'api iniciada',
-      porta,
-      origemFrontend,
+      porta: appConfig.portaApi,
+      origemFrontend: appConfig.origemFrontend,
     });
   });
+}
+
+async function encerrarAplicacao(sinal: NodeJS.Signals): Promise<void> {
+  if (desligando) {
+    return;
+  }
+
+  desligando = true;
+  logger.info({ msg: 'encerrando aplicacao', sinal });
+
+  try {
+    if (servidorHttp) {
+      await new Promise<void>((resolver, rejeitar) => {
+        servidorHttp?.close((erro) => {
+          if (erro) {
+            rejeitar(erro);
+            return;
+          }
+
+          resolver();
+        });
+      });
+    }
+
+    await fecharConexao();
+
+    logger.info({ msg: 'aplicacao encerrada com sucesso' });
+    process.exit(0);
+  } catch (erro) {
+    logger.error({
+      msg: 'falha ao encerrar aplicacao',
+      detalhe: erro instanceof Error ? erro.message : 'erro desconhecido',
+      stack: erro instanceof Error ? erro.stack : undefined,
+    });
+    process.exit(1);
+  }
 }
 
 iniciarServidor().catch((erro) => {
@@ -125,5 +82,13 @@ process.on('uncaughtException', (erro) => {
     stack: erro.stack,
   });
   process.exit(1);
+});
+
+process.on('SIGINT', () => {
+  void encerrarAplicacao('SIGINT');
+});
+
+process.on('SIGTERM', () => {
+  void encerrarAplicacao('SIGTERM');
 });
 

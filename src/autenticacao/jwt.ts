@@ -2,15 +2,16 @@
 
 import jwt, { JwtPayload, SignOptions } from 'jsonwebtoken';
 
+import { appConfig } from '../config/env';
 import { ApiErro } from '../tipos/erros';
 
-const segredoAcesso = process.env.JWT_SEGREDO_ACESSO ?? 'gestor-segredo-acesso-dev-altere-em-producao';
-const segredoRefresh = process.env.JWT_SEGREDO_REFRESH ?? 'gestor-segredo-refresh-dev-altere-em-producao';
-const segredoDesafio = process.env.JWT_SEGREDO_DESAFIO ?? 'gestor-segredo-desafio-dev-altere-em-producao';
+const segredoAcesso = appConfig.jwt.segredoAcesso;
+const segredoRefresh = appConfig.jwt.segredoRefresh;
+const segredoDesafio = appConfig.jwt.segredoDesafio;
 
-const duracaoTokenAcesso = process.env.JWT_DURACAO_ACESSO ?? '15m';
-const duracaoTokenRefresh = process.env.JWT_DURACAO_REFRESH ?? '7d';
-const duracaoTokenDesafio = process.env.JWT_DURACAO_DESAFIO ?? '10m';
+const duracaoTokenAcesso = appConfig.jwt.duracaoAcesso;
+const duracaoTokenRefresh = appConfig.jwt.duracaoRefresh;
+const duracaoTokenDesafio = appConfig.jwt.duracaoDesafio;
 
 export const nomeCookieRefresh = 'gestor_refresh_token';
 

@@ -2,7 +2,9 @@ import { Writable } from 'node:stream';
 
 import pino from 'pino';
 
-const ambiente = process.env.NODE_ENV ?? 'development';
+import { appConfig } from '../config/env';
+
+const ambiente = appConfig.ambiente;
 
 function normalizarValor(valor: unknown): string {
   if (valor === undefined || valor === null || valor === '') {
@@ -104,7 +106,7 @@ function criarDestinoLegivel() {
 export const logger = pino(
   {
     name: 'gestor-api',
-    level: process.env.LOG_NIVEL ?? (ambiente === 'production' ? 'info' : 'debug'),
+    level: appConfig.logNivel,
     base: {
       servico: 'gestor-api',
       ambiente,
